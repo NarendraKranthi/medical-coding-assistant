@@ -69,20 +69,40 @@
   </div>
 
   <script>
-    function search() {
-      let input = document.getElementById("search").value.toLowerCase();
+async function search() {
+  let input = document.getElementById("search").value;
 
-      if (input.includes("modifier")) {
-        document.getElementById("result").innerText =
-          "Denial Reason: Missing modifier. Fix: Add appropriate modifier based on procedure.";
-      } 
-      else if (input.includes("99213")) {
-        document.getElementById("result").innerText =
-          "CPT 99213: Check documentation, medical necessity, and correct modifier usage.";
-      } 
-      else if (input.includes("authorization")) {
-        document.getElementById("result").innerText =
-          "Denial: Authorization missing. Fix: Verify prior authorization before billing.";
-      }
-      else {
-        document.getElementById("result
+  document.getElementById("result").innerText = "Loading...";
+
+  try {
+    let response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer YOUR_API_KEY",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a medical coding assistant. Give short, accurate answers for CPT, ICD, modifiers, and denial reasons."
+          },
+          {
+            role: "user",
+            content: input
+          }
+        ]
+      })
+    });
+
+    let data = await response.json();
+    let answer = data.choices[0].message.content;
+
+    document.getElementById("result").innerText = answer;
+
+  } catch (error) {
+    document.getElementById("result").innerText = "Error. Try again.";
+  }
+}
+</script>
