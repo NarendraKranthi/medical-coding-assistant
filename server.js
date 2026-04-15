@@ -1,27 +1,57 @@
 const express = require("express");
 const cors = require("cors");
+require("dotenv").config();
+
+const OpenAI = require("openai");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Home route (test in browser)
-app.get("/", (req, res) => {
-  res.send("Backend Working ✅");
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
 });
 
-// API route (used by your website)
-app.post("/api/ai", (req, res) => {
-  const { query, payer } = req.body;
+// Test route
+app.get("/", (req, res) => {
+  res.send("Medical AI Backend Running ✅");
+});
 
-  res.json({
-    answer: `✅ Connected Successfully!
+// AI route
+app.post("/api/ai", async (req, res) => {
+  try {
+    const { query, payer } = req.body;
 
-Query: ${query}
-Payer: ${payer}
+    const prompt = `
+You are a professional medical coding assistant.
 
-Backend is working perfectly.`
-  });
+User Query: ${query}
+Insurance: ${payer}
+
+Provide structured response:
+
+Brief Answer:
+Common Causes:
+Fix / Action Steps:
+Simple Summary:
+`;
+
+    const response = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "user", content: prompt }
+      ]
+    });
+
+    res.json({
+      answer: response.choices[0].message.content
+    });
+
+  } catch (error) {
+    res.json({
+      answer: "❌ AI Error. Check API key or server."
+    });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
