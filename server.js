@@ -12,24 +12,21 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Test route
 app.get("/", (req, res) => {
   res.send("Medical AI Backend Running ✅");
 });
 
-// AI route
 app.post("/api/ai", async (req, res) => {
   try {
     const { query, payer } = req.body;
 
     const prompt = `
-You are a professional medical coding assistant.
+You are a medical coding assistant.
 
-User Query: ${query}
+Query: ${query}
 Insurance: ${payer}
 
-Provide structured response:
-
+Give:
 Brief Answer:
 Common Causes:
 Fix / Action Steps:
@@ -38,24 +35,20 @@ Simple Summary:
 
     const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        { role: "user", content: prompt }
-      ]
+      messages: [{ role: "user", content: prompt }]
     });
 
     res.json({
       answer: response.choices[0].message.content
     });
 
-  } catch (error) {
+  } catch (err) {
+    console.error(err);
     res.json({
-      answer: "❌ AI Error. Check API key or server."
+      answer: "❌ AI error. Please check API setup."
     });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
+app.listen(PORT, () => console.log("Server running on port " + PORT));
