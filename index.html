@@ -91,11 +91,10 @@
     <button onclick="search()">Search</button>
 
     <p id="result"></p>
-
     <p id="reference"></p>
   </div>
 
- <script>
+<script>
 function formatResponse(text) {
   return text
     .replace("Brief Answer:", "<b>✅ Brief Answer:</b><br>")
@@ -112,37 +111,46 @@ async function search() {
   document.getElementById("result").innerHTML = "Loading...";
   document.getElementById("reference").innerHTML = "";
 
-  // ✅ DEMO MODE (NO BACKEND REQUIRED)
-  let data = {
-    answer:
-      "Brief Answer: This is a demo response.<br>" +
-      "Common Causes: No backend connected.<br>" +
-      "Fix / Action Steps: Connect backend later for real AI results.<br>" +
-      "Simple Summary: UI is working perfectly on Netlify."
-  };
+  try {
+    let res = await fetch("https://medical-coding-assistant.onrender.com/api/ai", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: input,
+        payer: payer
+      })
+    });
 
-  let formatted = formatResponse(data.answer);
-  document.getElementById("result").innerHTML = formatted;
+    let data = await res.json();
 
-  // 🔗 Reference links
-  let ref = "";
+    let formatted = formatResponse(data.answer);
+    document.getElementById("result").innerHTML = formatted;
 
-  if (payer.includes("medicare")) {
-    ref = `<a href="https://www.cms.gov/medicare" target="_blank">View Medicare Guidelines</a>`;
-  } 
-  else if (payer.includes("aetna")) {
-    ref = `<a href="https://www.aetna.com/health-care-professionals.html" target="_blank">View Aetna Policy</a>`;
-  } 
-  else if (payer.includes("united")) {
-    ref = `<a href="https://www.uhcprovider.com/" target="_blank">View UnitedHealthcare Policy</a>`;
-  } 
-  else if (payer.includes("blue")) {
-    ref = `<a href="https://www.bcbs.com/" target="_blank">View BCBS Guidelines</a>`;
+    // Reference links
+    let ref = "";
+
+    if (payer.includes("medicare")) {
+      ref = `<a href="https://www.cms.gov/medicare" target="_blank">View Medicare Guidelines</a>`;
+    } 
+    else if (payer.includes("aetna")) {
+      ref = `<a href="https://www.aetna.com/health-care-professionals.html" target="_blank">View Aetna Policy</a>`;
+    } 
+    else if (payer.includes("united")) {
+      ref = `<a href="https://www.uhcprovider.com/" target="_blank">View UnitedHealthcare Policy</a>`;
+    } 
+    else if (payer.includes("blue")) {
+      ref = `<a href="https://www.bcbs.com/" target="_blank">View BCBS Guidelines</a>`;
+    }
+
+    document.getElementById("reference").innerHTML = ref;
+
+  } catch (error) {
+    document.getElementById("result").innerHTML = "❌ Error connecting to backend.";
   }
-
-  document.getElementById("reference").innerHTML = ref;
 }
- </script>
+</script>
 
 </body>
 </html>
