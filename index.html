@@ -97,10 +97,12 @@
 <script>
 function formatResponse(text) {
   return text
+    .replace(/###/g, "") // remove unwanted ###
     .replace("Brief Answer:", "<b>✅ Brief Answer:</b><br>")
     .replace("Common Causes:", "<br><br><b>🔸 Common Causes:</b><br>")
     .replace("Fix / Action Steps:", "<br><br><b>🛠️ Fix / Action Steps:</b><br>")
     .replace("Simple Summary:", "<br><br><b>💡 Simple Summary:</b><br>")
+    .replace(/\n/g, "<br>")
     .replace(/- /g, "• ");
 }
 
