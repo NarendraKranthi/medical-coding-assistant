@@ -2,149 +2,254 @@
 <html>
 <head>
   <title>Medical Coding Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
-    body { font-family: Arial; background: #eef2f7; margin:0; }
-    header { background:#0d6efd; color:#fff; padding:15px; text-align:center; font-size:20px; }
-    .container { max-width:600px; margin:20px auto; background:#fff; padding:20px; border-radius:10px; }
-    input { width:100%; padding:10px; margin:8px 0; border-radius:5px; border:1px solid #ccc; }
-    button { width:100%; padding:12px; background:#0d6efd; color:#fff; border:none; border-radius:5px; margin-top:10px; }
-    .card { background:#f8f9fa; padding:15px; border-radius:8px; margin-top:10px; }
-    #history div, #important div { padding:8px; border-bottom:1px solid #ddd; cursor:pointer; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #eef2f7;
+      margin: 0;
+    }
+
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 15px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 20px auto;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 8px;
+      background: #2563eb;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #1e40af;
+    }
+
+    .result-box {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 10px;
+      border-left: 4px solid #2563eb;
+    }
+
+    .section-title {
+      font-weight: bold;
+      margin-top: 10px;
+      color: #111827;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      margin-bottom: 10px;
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .references {
+      margin-top: 15px;
+    }
+
+    .references a {
+      display: block;
+      color: #2563eb;
+      text-decoration: none;
+      margin-bottom: 5px;
+    }
+
+    .references a:hover {
+      text-decoration: underline;
+    }
+
+    .save-btn {
+      background: #16a34a;
+      margin-top: 15px;
+    }
+
+    .history, .important {
+      margin-top: 20px;
+    }
+
+    .history-item, .important-item {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .history-item:hover {
+      background: #f3f4f6;
+    }
+
   </style>
 </head>
 
 <body>
 
-<header>🏥 Medical Coding Assistant</header>
+<div class="header">
+  🏥 Medical Coding Assistant
+</div>
 
 <div class="container">
 
-  <input id="search" placeholder="Enter CPT / ICD / Denial / Full text">
-  <input id="payer" placeholder="Insurance (optional)">
+  <input id="query" placeholder="Enter CPT / ICD / Denial / Paragraph">
+  <input id="payer" placeholder="Insurance (Optional)">
+
   <button onclick="search()">Search</button>
 
-  <p id="type"></p>
-  <div id="loader"></div>
   <div id="result"></div>
-  <div id="reference"></div>
 
-  <h3>📜 History</h3>
-  <div id="history"></div>
+  <button class="save-btn" onclick="saveImportant()">⭐ Save Important</button>
 
-  <h3>⭐ Important</h3>
-  <div id="important"></div>
+  <div class="history">
+    <h3>🕒 History</h3>
+    <div id="historyList"></div>
+  </div>
+
+  <div class="important">
+    <h3>⭐ Important</h3>
+    <div id="importantList"></div>
+  </div>
 
 </div>
 
 <script>
 
-// 🔍 Detect input type
-function detectType(input){
-  input = input.toUpperCase();
-  if (/^\d{5}$/.test(input)) return "CPT Code";
-  if (/^[A-Z]\d{2}/.test(input)) return "ICD Code";
-  if (/(CO|PR|OA|PI)-\d+/.test(input)) return "Denial Code";
-  return "Complex Case";
+let lastResult = "";
+
+// 🎯 FORMAT RESPONSE
+function formatResponse(text) {
+  return text
+    .replace("Brief Answer:", "<div class='section-title'>✅ Brief Answer</div>")
+    .replace("Common Causes:", "<div class='section-title'>🔸 Common Causes</div>")
+    .replace("Fix / Action Steps:", "<div class='section-title'>🛠️ Fix</div>")
+    .replace("Simple Summary:", "<div class='section-title'>💡 Summary</div>")
+    .replace(/\n/g, "<br>");
 }
 
-// 🔗 Extract denial code
-function extractDenial(text){
-  let match = text.toUpperCase().match(/(CO|PR|OA|PI)-\d+/);
-  return match ? match[0] : null;
-}
+// 🔍 SEARCH FUNCTION
+async function search() {
 
-// 📜 Load History
-function loadHistory(){
-  let history = JSON.parse(localStorage.getItem("history")) || [];
-  let html="";
-  history.forEach((item,i)=>{
-    html += `<div onclick="loadOld(${i})">🔍 ${item.input}</div>`;
-  });
-  document.getElementById("history").innerHTML = html;
-}
-
-// ⭐ Load Important
-function loadImportant(){
-  let data = JSON.parse(localStorage.getItem("important")) || [];
-  let html="";
-  data.forEach((item,i)=>{
-    html += `<div onclick="loadImp(${i})">⭐ ${item.input}</div>`;
-  });
-  document.getElementById("important").innerHTML = html;
-}
-
-// Load old result
-function loadOld(i){
-  let history = JSON.parse(localStorage.getItem("history"));
-  document.getElementById("result").innerHTML = `<div class="card">${history[i].result}</div>`;
-}
-
-// Load important
-function loadImp(i){
-  let data = JSON.parse(localStorage.getItem("important"));
-  document.getElementById("result").innerHTML = `<div class="card">${data[i].result}</div>`;
-}
-
-// ⭐ Save important
-function saveImportant(){
-  let history = JSON.parse(localStorage.getItem("history")) || [];
-  let important = JSON.parse(localStorage.getItem("important")) || [];
-  important.unshift(history[0]);
-  localStorage.setItem("important", JSON.stringify(important));
-  loadImportant();
-  alert("Saved ⭐");
-}
-
-// 🔍 Search
-async function search(){
-
-  let input = document.getElementById("search").value;
+  let query = document.getElementById("query").value;
   let payer = document.getElementById("payer").value;
 
-  document.getElementById("type").innerHTML = "Detected: " + detectType(input);
-  document.getElementById("loader").innerHTML = "Loading...";
-  document.getElementById("result").innerHTML = "";
+  document.getElementById("result").innerHTML = "Loading...";
 
-  let res = await fetch("https://medical-coding-assistant.onrender.com/api/search",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json"},
-    body: JSON.stringify({query:input, payer:payer})
+  let res = await fetch("https://medical-coding-assistant.onrender.com/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, payer })
   });
 
   let data = await res.json();
 
-  let formatted = data.answer.replace(/\n/g,"<br>");
+  let formatted = formatResponse(data.answer);
 
-  document.getElementById("loader").innerHTML = "";
-  document.getElementById("result").innerHTML = `
-    <div class="card">
+  let html = `
+    <div class="result-box">
+      <div class="tag">Detected: ${data.type}</div>
       ${formatted}
-      <br><br>
-      <button onclick="saveImportant()">⭐ Save Important</button>
-    </div>
   `;
 
-  // Save history
-  let history = JSON.parse(localStorage.getItem("history")) || [];
-  history.unshift({input:input, result:formatted});
-  localStorage.setItem("history", JSON.stringify(history));
-  loadHistory();
-
-  // Reference
-  let code = extractDenial(input);
-  if(code){
-    document.getElementById("reference").innerHTML =
-      `<a href="https://www.google.com/search?q=${code}+denial" target="_blank">🔎 ${code} Details</a>`;
+  // 🔗 REFERENCES
+  if (data.references && data.references.length > 0) {
+    html += "<div class='references'><b>🔗 References</b>";
+    data.references.forEach(r => {
+      html += `<a href="${r.link}" target="_blank">${r.title}</a>`;
+    });
+    html += "</div>";
   }
 
+  html += "</div>";
+
+  document.getElementById("result").innerHTML = html;
+
+  lastResult = html;
+
+  saveHistory(query, html);
 }
 
-// Load data
-window.onload = function(){
+// 🕒 SAVE HISTORY
+function saveHistory(query, result) {
+  let history = JSON.parse(localStorage.getItem("history") || "[]");
+  history.unshift({ query, result });
+  localStorage.setItem("history", JSON.stringify(history));
   loadHistory();
+}
+
+// ⭐ SAVE IMPORTANT
+function saveImportant() {
+  if (!lastResult) return;
+
+  let important = JSON.parse(localStorage.getItem("important") || "[]");
+  important.unshift(lastResult);
+  localStorage.setItem("important", JSON.stringify(important));
   loadImportant();
-};
+}
+
+// 📜 LOAD HISTORY
+function loadHistory() {
+  let history = JSON.parse(localStorage.getItem("history") || "[]");
+  let html = "";
+
+  history.forEach(h => {
+    html += `<div class="history-item" onclick='showHistory(${JSON.stringify(h.result)})'>🔍 ${h.query}</div>`;
+  });
+
+  document.getElementById("historyList").innerHTML = html;
+}
+
+function showHistory(result) {
+  document.getElementById("result").innerHTML = result;
+}
+
+// ⭐ LOAD IMPORTANT
+function loadImportant() {
+  let important = JSON.parse(localStorage.getItem("important") || "[]");
+  let html = "";
+
+  important.forEach(i => {
+    html += `<div class="important-item">${i}</div>`;
+  });
+
+  document.getElementById("importantList").innerHTML = html;
+}
+
+// INIT LOAD
+loadHistory();
+loadImportant();
 
 </script>
 
