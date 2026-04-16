@@ -1,54 +1,69 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
-
 const OpenAI = require("openai");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+// ✅ OpenAI setup (uses Render environment variable)
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
+// ✅ Test route
 app.get("/", (req, res) => {
-  res.send("Medical AI Backend Running ✅");
+  res.send("Backend Working ✅");
 });
 
-app.post("/api/ai", async (req, res) => {
+// ✅ MAIN API ROUTE
+app.post("/api/search", async (req, res) => {
   try {
     const { query, payer } = req.body;
 
+    // 🧠 Strong structured prompt
     const prompt = `
-You are a medical coding assistant.
+You are a professional medical coding expert.
 
-Query: ${query}
+User Query: ${query}
 Insurance: ${payer}
 
-Give:
+Give response EXACTLY in this format:
+
 Brief Answer:
 Common Causes:
 Fix / Action Steps:
 Simple Summary:
+
+Keep it clear, practical, and useful for medical coders.
 `;
 
-    const response = await client.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }]
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
     });
 
-    res.json({
-      answer: response.choices[0].message.content
-    });
+    const answer = response.choices[0].message.content;
 
-  } catch (err) {
-    console.error(err);
-    res.json({
-      answer: "❌ AI error. Please check API setup."
+    res.json({ answer });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      answer: "Error: Unable to fetch response from AI.",
     });
   }
 });
 
+// ✅ PORT (Render uses this automatically)
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on port " + PORT));
+
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
