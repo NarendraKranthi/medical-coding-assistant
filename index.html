@@ -1,121 +1,62 @@
 <!DOCTYPE html><html>
 <head>
-  <title>Medical Coding Assistant</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">  <style>
-    body { font-family: Arial; background: #eef2f7; margin:0; }
+<title>Medical Coding Assistant</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
+body { font-family: Arial; background:#eef2f7; margin:0; }
+.header { background:#2563eb; color:white; padding:15px; text-align:center; font-weight:bold; }
 
-    .header {
-      background:#2563eb; color:white; padding:15px; text-align:center;
-      font-size:18px; font-weight:bold;
-    }
+.container { max-width:700px; margin:20px auto; background:white; padding:20px; border-radius:10px; }
 
-    .container {
-      max-width:650px; margin:20px auto; background:white;
-      padding:20px; border-radius:12px;
-    }
+.tab { display:flex; margin-bottom:15px; }
+.tab button {
+  flex:1; padding:10px; border:none; cursor:pointer;
+  background:#e5e7eb;
+}
+.tab button.active { background:#2563eb; color:white; }
 
-    input {
-      width:100%; padding:12px; margin:8px 0;
-      border-radius:8px; border:1px solid #ccc;
-    }
-
-    button {
-      width:100%; padding:12px; background:#2563eb;
-      color:white; border:none; border-radius:8px;
-    }
-
-    .result-box {
-      margin-top:15px; padding:15px;
-      background:#f9fafb; border-left:4px solid #2563eb;
-      border-radius:8px;
-    }
-
-    .section-title { font-weight:bold; margin-top:10px; }
-
-    .cpt { background:#e0f2fe; padding:3px 6px; border-radius:5px; cursor:pointer; }
-    .icd { background:#dcfce7; padding:3px 6px; border-radius:5px; cursor:pointer; }
-
-    .history { margin-top:20px; }
-
-    .history-item {
-      padding:10px;
-      border-bottom:1px solid #eee;
-      cursor:pointer;
-    }
-
-    .history-item:hover { background:#f3f4f6; }
-
-    .history-date {
-      font-size:11px;
-      color:gray;
-    }
-
-    .filter-box {
-      margin-top:10px;
-    }
-
-    .popup {
-      display:none;
-      position:fixed;
-      top:20%;
-      left:50%;
-      transform:translateX(-50%);
-      background:white;
-      padding:20px;
-      border-radius:10px;
-      box-shadow:0 4px 20px rgba(0,0,0,0.2);
-      z-index:999;
-    }
-
-  </style></head><body><div class="header">🏥 Medical Coding Assistant</div><div class="container">  <input id="query" placeholder="Enter CPT / ICD / Denial">
-  <input id="payer" placeholder="Insurance (Optional)">
-  <button onclick="search()">Search</button>  <div id="result"></div>  <!-- FILTER -->  <div class="filter-box">
-    <input id="searchFilter" placeholder="🔍 Search history" onkeyup="loadHistory()">
-    <input type="date" id="dateFilter" onchange="loadHistory()">
-  </div>  <!-- HISTORY -->  <div class="history">
-    <h3>📥 History</h3>
-    <div id="historyList"></div>
-  </div></div><!-- CPT POPUP --><div id="cptPopup" class="popup">
-  <h3>CPT</h3>
-  <p id="cptText"></p>
-  <button onclick="closeCPT()">Close</button>
-</div><!-- ICD POPUP --><div id="icdPopup" class="popup">
-  <h3>ICD</h3>
-  <p id="icdText"></p>
-  <button onclick="closeICD()">Close</button>
-</div><script>
-
-const CPT_DATA = {
-  "99213": "Office visit (low complexity)",
-  "99214": "Office visit (moderate)",
-  "97810": "Acupuncture initial",
-  "20553": "Trigger point injection"
-};
-
-const ICD_DATA = {
-  "E11.9": "Diabetes",
-  "M54.5": "Low back pain",
-  "I10": "Hypertension"
-};
-
-// FORMAT
-function formatResponse(text){
-  return text
-    .replace("Brief Answer:", "<div class='section-title'>✅ Brief Answer</div>")
-    .replace("Common Causes:", "<div class='section-title'>🔸 Common Causes</div>")
-    .replace("Fix / Action Steps:", "<div class='section-title'>🛠️ Fix</div>")
-    .replace("Simple Summary:", "<div class='section-title'>💡 Summary</div>")
-    .replace(/\n/g,"<br>");
+input, textarea {
+  width:100%; padding:10px; margin-top:8px;
+  border-radius:6px; border:1px solid #ccc;
 }
 
-// HIGHLIGHT
-function highlightCodes(text){
-  text = text.replace(/\b\d{5}\b/g, m => `<span class="cpt" onclick="showCPT('${m}')">${m}</span>`);
-  text = text.replace(/\b[A-TV-Z]\d{2}(\.\d+)?\b/g, m => `<span class="icd" onclick="showICD('${m}')">${m}</span>`);
-  return text;
+button.action {
+  margin-top:10px; background:#2563eb; color:white;
+  border:none; padding:10px; border-radius:6px;
 }
 
-// SEARCH
+.result-box {
+  margin-top:10px; padding:10px; border-radius:6px;
+}
+
+.ok { background:#ecfdf5; }
+.warn { background:#fff7ed; }
+.error { background:#fee2e2; }
+
+.cpt { background:#dbeafe; padding:2px 5px; border-radius:4px; }
+.icd { background:#dcfce7; padding:2px 5px; border-radius:4px; }
+
+</style></head><body><div class="header">🏥 Medical Coding Assistant</div><div class="container"><!-- TABS --><div class="tab">
+  <button class="active" onclick="showTab('denial')">Denial</button>
+  <button onclick="showTab('audit')">Audit</button>
+</div><!-- DENIAL TOOL --><div id="denialTab">  <input id="query" placeholder="Enter denial / CPT / ICD">
+  <input id="payer" placeholder="Insurance (optional)">
+  <button class="action" onclick="search()">Search</button>  <div id="result"></div></div><!-- AUDIT TOOL --><div id="auditTab" style="display:none;">  <textarea id="auditInput" rows="6" placeholder="Example:
+99213 - 25 - M54.59,M54.41
+97810 - M54.2
+20553 - M53.3"></textarea><button class="action" onclick="runAudit()">Run Audit</button>
+
+  <div id="auditResult"></div></div></div><script>
+
+// TAB SWITCH
+function showTab(tab){
+  document.getElementById("denialTab").style.display = tab==="denial"?"block":"none";
+  document.getElementById("auditTab").style.display = tab==="audit"?"block":"none";
+
+  document.querySelectorAll(".tab button").forEach(btn=>btn.classList.remove("active"));
+  event.target.classList.add("active");
+}
+
+// DENIAL SEARCH
 async function search(){
   let query = document.getElementById("query").value;
   let payer = document.getElementById("payer").value;
@@ -130,80 +71,89 @@ async function search(){
 
   let data = await res.json();
 
-  let formatted = highlightCodes(formatResponse(data.answer));
+  let text = data.answer
+    .replace(/\n/g,"<br>")
+    .replace(/\b\d{5}\b/g, m=>`<span class="cpt">${m}</span>`)
+    .replace(/\b[A-TV-Z]\d{2}(\.\d+)?\b/g, m=>`<span class="icd">${m}</span>`);
 
-  let html = `<div class="result-box">${formatted}</div>`;
-  document.getElementById("result").innerHTML = html;
-
-  saveHistory(query, html);
+  document.getElementById("result").innerHTML = `<div class="result-box ok">${text}</div>`;
 }
 
-// SAVE HISTORY WITH DATE
-function saveHistory(query, result){
-  let history = JSON.parse(localStorage.getItem("history")||"[]");
+// AUDIT ENGINE
+function runAudit(){
 
-  let now = new Date();
+  let lines = document.getElementById("auditInput").value.trim().split("\n");
+  let allCPTs = lines.map(l=>l.split("-")[0].trim());
 
-  history.unshift({
-    query,
-    result,
-    date: now.toLocaleDateString(),
-    time: now.toLocaleTimeString()
+  let output="";
+
+  const NCCI = [
+    {a:"97810", b:"97811", type:"block"},
+    {a:"20553", b:"20550", type:"modifier", modifier:"59"},
+    {a:"99213", b:"97810", type:"modifier", modifier:"25"}
+  ];
+
+  const EXCLUDES1 = [
+    {a:"M54.5", b:"M54.59"},
+    {a:"E11.9", b:"E11.65"}
+  ];
+
+  lines.forEach(line=>{
+
+    let parts = line.split("-");
+    let cpt = parts[0].trim();
+    let mod = parts[1]?.trim();
+    let icds = parts[2]?.split(",").map(x=>x.trim()) || [];
+
+    let status = "ok";
+    let msg = `<b>🔵 CPT ${cpt}</b><br>`;
+
+    // NCCI
+    NCCI.forEach(rule=>{
+      if((rule.a===cpt && allCPTs.includes(rule.b)) || (rule.b===cpt && allCPTs.includes(rule.a))){
+
+        if(rule.type==="block"){
+          status="error";
+          msg += `❌ NCCI: ${rule.a} & ${rule.b} cannot be billed together<br>`;
+        }
+
+        if(rule.type==="modifier"){
+          if(mod===rule.modifier){
+            status="warn";
+            msg += `🟠 Allowed with modifier ${rule.modifier}<br>`;
+          }else{
+            status="error";
+            msg += `❌ Add modifier ${rule.modifier}<br>`;
+          }
+        }
+      }
+    });
+
+    // EXCLUDES1
+    icds.forEach(icd1=>{
+      icds.forEach(icd2=>{
+        EXCLUDES1.forEach(rule=>{
+          if((rule.a===icd1 && rule.b===icd2) || (rule.a===icd2 && rule.b===icd1)){
+            status="error";
+            msg += `⛔ Excludes1: ${icd1} & ${icd2}<br>`;
+          }
+        });
+      });
+    });
+
+    // Modifier suggestion
+    if(cpt==="99213" && !mod){
+      msg += `💡 Suggest modifier 25 if E/M with procedure<br>`;
+      status="warn";
+    }
+
+    msg += `🟢 ICD: ${icds.join(", ")}`;
+
+    output += `<div class="result-box ${status}">${msg}</div>`;
   });
 
-  localStorage.setItem("history", JSON.stringify(history));
-  loadHistory();
+  document.getElementById("auditResult").innerHTML = output;
 }
-
-// LOAD HISTORY WITH FILTER
-function loadHistory(){
-  let history = JSON.parse(localStorage.getItem("history")||"[]");
-
-  let textFilter = document.getElementById("searchFilter").value.toLowerCase();
-  let dateFilter = document.getElementById("dateFilter").value;
-
-  let html = "";
-
-  history.forEach((h,index)=>{
-
-    if(textFilter && !h.query.toLowerCase().includes(textFilter)) return;
-
-    if(dateFilter && h.date !== new Date(dateFilter).toLocaleDateString()) return;
-
-    html += `
-      <div class="history-item" onclick="openHistory(${index})">
-        <div><b>${h.query}</b></div>
-        <div class="history-date">${h.date} • ${h.time}</div>
-      </div>
-    `;
-  });
-
-  document.getElementById("historyList").innerHTML = html;
-}
-
-// OPEN FULL RESULT
-function openHistory(index){
-  let history = JSON.parse(localStorage.getItem("history")||"[]");
-  document.getElementById("result").innerHTML = highlightCodes(history[index].result);
-}
-
-// POPUPS
-function showCPT(code){
-  document.getElementById("cptText").innerHTML = code + "<br>" + (CPT_DATA[code]||"No data");
-  document.getElementById("cptPopup").style.display="block";
-}
-
-function closeCPT(){ document.getElementById("cptPopup").style.display="none"; }
-
-function showICD(code){
-  document.getElementById("icdText").innerHTML = code + "<br>" + (ICD_DATA[code]||"No data");
-  document.getElementById("icdPopup").style.display="block";
-}
-
-function closeICD(){ document.getElementById("icdPopup").style.display="none"; }
-
-// INIT
-loadHistory();
 
 </script></body>
 </html>
