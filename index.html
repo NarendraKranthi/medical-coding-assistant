@@ -1,10 +1,7 @@
-<!DOCTYPE html>
-<html>
+<!DOCTYPE html><html>
 <head>
   <title>Medical Coding Assistant</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">  <style>
     body {
       font-family: Arial, sans-serif;
       background: #eef2f7;
@@ -113,39 +110,38 @@
       background: #f3f4f6;
     }
 
-  </style>
-</head>
+    /* 🔵 CPT */
+    .cpt {
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 3px 6px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
 
-<body>
+    /* 🟢 ICD */
+    .icd {
+      background: #dcfce7;
+      color: #166534;
+      padding: 3px 6px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
 
-<div class="header">
+  </style></head><body><div class="header">
   🏥 Medical Coding Assistant
-</div>
+</div><div class="container">  <input id="query" placeholder="Enter CPT / ICD / Denial / Paragraph">
+  <input id="payer" placeholder="Insurance (Optional)"><button onclick="search()">Search</button>
 
-<div class="container">
-
-  <input id="query" placeholder="Enter CPT / ICD / Denial / Paragraph">
-  <input id="payer" placeholder="Insurance (Optional)">
-
-  <button onclick="search()">Search</button>
-
-  <div id="result"></div>
-
-  <button class="save-btn" onclick="saveImportant()">⭐ Save Important</button>
+  <div id="result"></div><button class="save-btn" onclick="saveImportant()">⭐ Save Important</button>
 
   <div class="history">
     <h3>🕒 History</h3>
     <div id="historyList"></div>
-  </div>
-
-  <div class="important">
+  </div>  <div class="important">
     <h3>⭐ Important</h3>
     <div id="importantList"></div>
-  </div>
-
-</div>
-
-<script>
+  </div></div><script>
 
 let lastResult = "";
 
@@ -159,13 +155,29 @@ function formatResponse(text) {
     .replace(/\n/g, "<br>");
 }
 
-// 🔍 SEARCH FUNCTION
+// 🔥 HIGHLIGHT CPT & ICD (IMPROVED)
+function highlightCodes(text) {
+
+  // CPT (5 digits)
+  text = text.replace(/(?<![\w>])\b\d{5}\b(?![^<]*>)/g, match => {
+    return `<span class="cpt">${match}</span>`;
+  });
+
+  // ICD (E11.9, M54.5)
+  text = text.replace(/(?<![\w>])\b[A-TV-Z]\d{2}(\.\d{1,4})?\b(?![^<]*>)/g, match => {
+    return `<span class="icd">${match}</span>`;
+  });
+
+  return text;
+}
+
+// 🔍 SEARCH
 async function search() {
 
   let query = document.getElementById("query").value;
   let payer = document.getElementById("payer").value;
 
-  document.getElementById("result").innerHTML = "Loading...";
+  document.getElementById("result").innerHTML = "Connecting to AI (first time may take 30 sec)...";
 
   let res = await fetch("https://medical-coding-assistant.onrender.com/api/search", {
     method: "POST",
@@ -175,7 +187,7 @@ async function search() {
 
   let data = await res.json();
 
-  let formatted = formatResponse(data.answer);
+  let formatted = highlightCodes(formatResponse(data.answer));
 
   let html = `
     <div class="result-box">
@@ -195,13 +207,12 @@ async function search() {
   html += "</div>";
 
   document.getElementById("result").innerHTML = html;
-
   lastResult = html;
 
   saveHistory(query, html);
 }
 
-// 🕒 SAVE HISTORY
+// 🕒 HISTORY
 function saveHistory(query, result) {
   let history = JSON.parse(localStorage.getItem("history") || "[]");
   history.unshift({ query, result });
@@ -209,17 +220,6 @@ function saveHistory(query, result) {
   loadHistory();
 }
 
-// ⭐ SAVE IMPORTANT
-function saveImportant() {
-  if (!lastResult) return;
-
-  let important = JSON.parse(localStorage.getItem("important") || "[]");
-  important.unshift(lastResult);
-  localStorage.setItem("important", JSON.stringify(important));
-  loadImportant();
-}
-
-// 📜 LOAD HISTORY
 function loadHistory() {
   let history = JSON.parse(localStorage.getItem("history") || "[]");
   let html = "";
@@ -232,26 +232,33 @@ function loadHistory() {
 }
 
 function showHistory(result) {
-  document.getElementById("result").innerHTML = result;
+  document.getElementById("result").innerHTML = highlightCodes(result);
 }
 
-// ⭐ LOAD IMPORTANT
+// ⭐ IMPORTANT
+function saveImportant() {
+  if (!lastResult) return;
+
+  let important = JSON.parse(localStorage.getItem("important") || "[]");
+  important.unshift(lastResult);
+  localStorage.setItem("important", JSON.stringify(important));
+  loadImportant();
+}
+
 function loadImportant() {
   let important = JSON.parse(localStorage.getItem("important") || "[]");
   let html = "";
 
   important.forEach(i => {
-    html += `<div class="important-item">${i}</div>`;
+    html += `<div class="important-item">${highlightCodes(i)}</div>`;
   });
 
   document.getElementById("importantList").innerHTML = html;
 }
 
-// INIT LOAD
+// INIT
 loadHistory();
 loadImportant();
 
-</script>
-
-</body>
+</script></body>
 </html>
