@@ -37,6 +37,13 @@ textarea {
   border:1px solid #ccc;
 }
 
+select {
+  width:100%;
+  padding:8px;
+  margin-bottom:10px;
+  border-radius:6px;
+}
+
 button {
   margin-top:10px;
   padding:10px;
@@ -69,26 +76,34 @@ button {
 <div class="container">
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('denial')">Denial</div>
-  <div class="tab" onclick="switchTab('audit')">Audit</div>
-</div>
-
-<!-- DENIAL -->
-<div id="denialBox">
-<textarea id="denialInput" placeholder="Enter denial / CPT / ICD"></textarea>
-<button onclick="runDenial()">Search</button>
-<div id="denialResult"></div>
+  <div class="tab active" onclick="switchTab('audit')">Audit</div>
+  <div class="tab" onclick="switchTab('denial')">Denial</div>
 </div>
 
 <!-- AUDIT -->
-<div id="auditBox" style="display:none;">
+<div id="auditBox">
+
+<select id="state">
+  <option value="general">General</option>
+  <option value="CA">California</option>
+  <option value="TX">Texas</option>
+  <option value="NY">New York</option>
+</select>
+
 <textarea id="auditInput" placeholder="Example:
 99213 - I10
-97810 - M54.2
-97811 - M54.2"></textarea>
+97810 - M54.5
+20553 - M79.18"></textarea>
 
 <button onclick="runAudit()">Run Audit</button>
+
 <div id="auditResult"></div>
+</div>
+
+<!-- DENIAL -->
+<div id="denialBox" style="display:none;">
+<textarea placeholder="Enter denial text"></textarea>
+<button>Search</button>
 </div>
 
 </div>
@@ -99,13 +114,13 @@ button {
 function switchTab(type){
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
 
-  if(type==="denial"){
-    denialBox.style.display="block";
-    auditBox.style.display="none";
+  if(type==="audit"){
+    auditBox.style.display="block";
+    denialBox.style.display="none";
     document.querySelectorAll(".tab")[0].classList.add("active");
   } else {
-    denialBox.style.display="none";
-    auditBox.style.display="block";
+    auditBox.style.display="none";
+    denialBox.style.display="block";
     document.querySelectorAll(".tab")[1].classList.add("active");
   }
 }
@@ -127,166 +142,203 @@ async function loadNCCI(){
       modifier: c[5]?.trim() || c[4]?.trim()
     };
   });
-
-  console.log("NCCI Loaded:", ncciData.length);
 }
-
 loadNCCI();
 
-/* ---------- PARSER ---------- */
-function parseInput(text){
-  let lines = text.split("\n");
-  let data = [];
-
-  lines.forEach(line=>{
-    if(!line.trim()) return;
-
-    let parts = line.split("-");
-    let cpt = parts[0]?.trim();
-
-    let icd = [];
-    if(parts[1]){
-      icd = parts[1].split(",").map(x=>x.trim());
-    }
-
-    data.push({cpt, icd});
-  });
-
-  return data;
+/* ---------- EXCLUDES1 ---------- */
+let EXCLUDES1 = {};
+async function loadExcludes(){
+  const res = await fetch("icd_excludes1.json");
+  EXCLUDES1 = await res.json();
 }
+loadExcludes();
 
-/* ---------- MODIFIER LOGIC ---------- */
-function getModifierSuggestion(cpt1, cpt2, ncciModifier){
+const EXCLUDES1_CATEGORY = {
+  "M54": ["M54"],
+  "E10": ["E11"],
+  "E11": ["E10"]
+};
 
-  const isEM1 = /^99\d{3}$/.test(cpt1);
-  const isEM2 = /^99\d{3}$/.test(cpt2);
-
-  let result = { text:"", class:"green" };
-
-  if(ncciModifier === "0"){
-    result.text = "❌ Do NOT Code Together";
-    result.class = "red";
-    return result;
-  }
-
-  if(ncciModifier === "1"){
-
-    if(isEM1 || isEM2){
-      result.text = "⚠️ Use Modifier 25 (E/M + Procedure)";
-      result.class = "orange";
-      return result;
-    } else {
-      result.text = "⚠️ Use Modifier 59 (Distinct Procedure)";
-      result.class = "orange";
-      return result;
+/* ---------- MEDICAL RULES ---------- */
+const MEDICAL_RULES = {
+  "97810": {
+    states: {
+      "CA": { icd:["M54","M79"], lcd:"L12345" },
+      "TX": { icd:["M54"], lcd:"L56789" },
+      "general": { icd:["M54","M79"], ncd:"NCD 30.3" }
+    }
+  },
+  "20553": {
+    states: {
+      "general": { icd:["M79","M54"], ncd:"NCD 150.3" }
+    }
+  },
+  "99213": {
+    states: {
+      "general": { icd:["ANY"], note:"E/M covered" }
     }
   }
+};
 
-  result.text = "✅ Allowed";
-  return result;
+/* ---------- HELPERS ---------- */
+function getCategory(code){
+  return code.split(".")[0];
 }
 
-/* ---------- NCCI CHECK ---------- */
+/* ---------- MEDICAL NECESSITY ---------- */
+function checkMedical(cpt, icds, state){
+
+  let rule = MEDICAL_RULES[cpt];
+  if(!rule){
+    return {cls:"orange", text:"🟠 Unknown"};
+  }
+
+  let s = rule.states[state] || rule.states["general"];
+
+  if(s.icd.includes("ANY")){
+    return {
+      cls:"green",
+      text:`🟢 Supported (${state.toUpperCase()} | ${s.ncd || s.lcd})`
+    };
+  }
+
+  let match = icds.some(icd => s.icd.includes(getCategory(icd)));
+
+  if(match){
+    return {
+      cls:"green",
+      text:`🟢 Supported (${state.toUpperCase()} | ${s.ncd || s.lcd})`
+    };
+  }
+
+  return {
+    cls:"red",
+    text:`🔴 Not Supported (${state.toUpperCase()})`
+  };
+}
+
+/* ---------- EXCLUDES CHECK ---------- */
+function checkExcludes(icds){
+
+  let res=[];
+
+  for(let i=0;i<icds.length;i++){
+    for(let j=i+1;j<icds.length;j++){
+
+      let a=icds[i], b=icds[j];
+
+      if(EXCLUDES1[a] && EXCLUDES1[a].includes(b)){
+        res.push(`${a} + ${b} → ❌ Excludes1`);
+        continue;
+      }
+
+      let ca=getCategory(a), cb=getCategory(b);
+
+      if(EXCLUDES1_CATEGORY[ca] &&
+         EXCLUDES1_CATEGORY[ca].includes(cb)){
+        res.push(`${a} + ${b} → ⚠️ Category Conflict`);
+      }
+    }
+  }
+  return res;
+}
+
+/* ---------- MODIFIER ---------- */
+function getModifier(c1,c2,mod){
+
+  if(mod==="0") return {cls:"red",text:"❌ Not allowed"};
+
+  if(mod==="1"){
+    if(/^99/.test(c1)||/^99/.test(c2)){
+      return {cls:"orange",text:"⚠️ Modifier 25"};
+    }
+    return {cls:"orange",text:"⚠️ Modifier 59"};
+  }
+
+  return {cls:"green",text:"✅ Allowed"};
+}
+
+/* ---------- NCCI ---------- */
 function checkNCCI(cpts){
 
-  let groups = {};
-  let results = [];
-  let seen = new Set();
+  let groups={}, res=[], seen=new Set();
 
-  ncciData.forEach(row=>{
-    if(!groups[row.group]){
-      groups[row.group] = [];
-    }
-    groups[row.group].push(row);
+  ncciData.forEach(r=>{
+    if(!groups[r.group]) groups[r.group]=[];
+    groups[r.group].push(r);
   });
 
-  Object.values(groups).forEach(group=>{
+  Object.values(groups).forEach(g=>{
+    let gC=g.map(x=>x.cpt);
+    let m=cpts.filter(c=>gC.includes(c));
 
-    let groupCPTs = group.map(x=>x.cpt);
-    let matched = cpts.filter(c => groupCPTs.includes(c));
+    if(m.length>1){
+      for(let i=0;i<m.length;i++){
+        for(let j=i+1;j<m.length;j++){
 
-    if(matched.length > 1){
-
-      for(let i=0;i<matched.length;i++){
-        for(let j=i+1;j<matched.length;j++){
-
-          let key = matched[i]+"-"+matched[j];
+          let key=m[i]+"-"+m[j];
           if(seen.has(key)) continue;
           seen.add(key);
 
-          let mod = group.find(x=>x.cpt===matched[i])?.modifier;
+          let mod=g.find(x=>x.cpt===m[i])?.modifier;
+          let r=getModifier(m[i],m[j],mod);
 
-          let res = getModifierSuggestion(matched[i], matched[j], mod);
-
-          results.push({
-            c1: matched[i],
-            c2: matched[j],
-            status: res.text,
-            cls: res.class
-          });
+          res.push(`${m[i]} + ${m[j]} → ${r.text}`);
         }
       }
     }
   });
 
-  return results;
+  return res;
 }
 
-/* ---------- AUDIT ---------- */
+/* ---------- PARSE ---------- */
+function parse(text){
+  return text.split("\n").map(l=>{
+    let p=l.split("-");
+    return {
+      cpt:p[0]?.trim(),
+      icd:p[1]?p[1].split(",").map(x=>x.trim()):[]
+    };
+  }).filter(x=>x.cpt);
+}
+
+/* ---------- RUN AUDIT ---------- */
 function runAudit(){
 
-  let input = document.getElementById("auditInput").value;
+  let input=document.getElementById("auditInput").value;
+  let state=document.getElementById("state").value;
 
-  let parsed = parseInput(input);
-  let cpts = parsed.map(x=>x.cpt);
-
-  let edits = checkNCCI(cpts);
+  let data=parse(input);
 
   let html="";
+  let allICD=[];
 
-  parsed.forEach(item=>{
-    html += `
-    <div class="card green">
-      <div class="code">CPT ${item.cpt}</div>
-      ICD: ${item.icd.join(", ")}
+  data.forEach(d=>{
+    allICD.push(...d.icd);
+
+    let med=checkMedical(d.cpt,d.icd,state);
+
+    html+=`
+    <div class="card ${med.cls}">
+      <div class="code">CPT ${d.cpt}</div>
+      ICD: ${d.icd.join(", ")}<br>
+      ${med.text}
     </div>`;
   });
 
-  if(edits.length === 0){
-    html += `<div class="card">No NCCI conflicts found</div>`;
-  }
-
-  edits.forEach(e=>{
-    html += `
-    <div class="card ${e.cls}">
-      ${e.c1} + ${e.c2} → ${e.status}
-    </div>`;
+  // Excludes
+  checkExcludes(allICD).forEach(x=>{
+    html+=`<div class="card red">${x}</div>`;
   });
 
-  document.getElementById("auditResult").innerHTML = html;
-}
+  // NCCI
+  let cpts=data.map(d=>d.cpt);
+  checkNCCI(cpts).forEach(x=>{
+    html+=`<div class="card orange">${x}</div>`;
+  });
 
-/* ---------- DENIAL ---------- */
-function runDenial(){
-  let text = document.getElementById("denialInput").value;
-
-  let html = `
-  <div class="card">
-  <b>✅ Brief Answer:</b><br>
-  Possible denial due to documentation or modifier issue.<br><br>
-
-  <b>🔸 Common Causes:</b><br>
-  Missing documentation<br>
-  Incorrect modifier<br><br>
-
-  <b>🛠️ Fix:</b><br>
-  Review notes and resubmit<br><br>
-
-  <b>💡 Summary:</b><br>
-  Validate coding and documentation.
-  </div>`;
-
-  document.getElementById("denialResult").innerHTML = html;
+  document.getElementById("auditResult").innerHTML=html;
 }
 
 </script>
