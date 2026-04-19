@@ -43,7 +43,7 @@ body {
 
 textarea {
   width:100%;
-  height:120px;
+  height:130px;
   padding:10px;
   border-radius:8px;
   border:1px solid #ccc;
@@ -100,7 +100,8 @@ button {
 <div id="auditBox" style="display:none;">
 <textarea id="auditInput" placeholder="Example:
 99213 - M54.59
-97810 - M54.2"></textarea>
+97810 - M54.2
+97811 - M54.2"></textarea>
 
 <button onclick="runAudit()">Run Audit</button>
 <div id="auditResult"></div>
@@ -110,26 +111,22 @@ button {
 
 <script>
 
-/* =========================
-   TAB SWITCH
-========================= */
+/* ================= TAB ================= */
 function switchTab(type){
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
 
   if(type==="denial"){
-    document.getElementById("denialBox").style.display="block";
-    document.getElementById("auditBox").style.display="none";
+    denialBox.style.display="block";
+    auditBox.style.display="none";
     document.querySelectorAll(".tab")[0].classList.add("active");
   } else {
-    document.getElementById("denialBox").style.display="none";
-    document.getElementById("auditBox").style.display="block";
+    denialBox.style.display="none";
+    auditBox.style.display="block";
     document.querySelectorAll(".tab")[1].classList.add("active");
   }
 }
 
-/* =========================
-   NCCI LOAD
-========================= */
+/* ================= NCCI LOAD ================= */
 let ncciData = [];
 
 async function loadNCCI(){
@@ -140,79 +137,100 @@ async function loadNCCI(){
 
   ncciData = rows.map(r=>{
     let c = r.split(",");
+
     return {
-      col1: c[0]?.trim(),
-      col2: c[1]?.trim(),
-      modifier: c[5]?.trim()
+      group: c[0]?.trim(),      // Column1
+      cpt: c[1]?.trim(),        // Column2
+      modifier: c[5]?.trim() || c[4]?.trim() // fallback
     };
   });
 
-  console.log("NCCI Loaded", ncciData.length);
+  console.log("NCCI Loaded:", ncciData.length);
 }
+
 loadNCCI();
 
-/* =========================
-   PARSER
-========================= */
+/* ================= PARSER ================= */
 function parseInput(text){
   let lines = text.split("\n");
   let data = [];
 
   lines.forEach(line=>{
+    if(!line.trim()) return;
+
     let parts = line.split("-");
     let cpt = parts[0]?.trim();
-    let icd = parts[1]?.split(",").map(x=>x.trim()) || [];
 
-    if(cpt) data.push({cpt, icd});
+    let icd = [];
+    if(parts[1]){
+      icd = parts[1].split(",").map(x=>x.trim());
+    }
+
+    data.push({cpt, icd});
   });
 
   return data;
 }
 
-/* =========================
-   NCCI CHECK
-========================= */
+/* ================= NCCI GROUP LOGIC ================= */
 function checkNCCI(cpts){
-  let results=[];
 
-  for(let i=0;i<cpts.length;i++){
-    for(let j=0;j<cpts.length;j++){
-      if(i===j) continue;
+  let groups = {};
 
-      let m = ncciData.find(
-        x => x.col1===cpts[i] && x.col2===cpts[j]
-      );
+  // group CPTs
+  ncciData.forEach(row=>{
+    if(!groups[row.group]){
+      groups[row.group] = [];
+    }
+    groups[row.group].push(row);
+  });
 
-      if(m){
-        let status = "";
-        let cls="green";
+  let results = [];
 
-        if(m.modifier==="0"){
-          status="Do NOT Code Together";
-          cls="red";
-        } else if(m.modifier==="1"){
-          status="Modifier Needed (59)";
-          cls="orange";
-        } else {
-          status="Allowed";
+  Object.values(groups).forEach(group=>{
+
+    let groupCPTs = group.map(x=>x.cpt);
+
+    let matched = cpts.filter(c => groupCPTs.includes(c));
+
+    if(matched.length > 1){
+
+      for(let i=0;i<matched.length;i++){
+        for(let j=i+1;j<matched.length;j++){
+
+          let mod = group.find(x => x.cpt === matched[i])?.modifier;
+
+          let status="";
+          let cls="green";
+
+          if(mod==="0"){
+            status="❌ Do NOT Code Together";
+            cls="red";
+          }
+          else if(mod==="1"){
+            status="⚠️ Modifier Required (59/XS/XE)";
+            cls="orange";
+          }
+          else{
+            status="Allowed";
+          }
+
+          results.push({
+            c1: matched[i],
+            c2: matched[j],
+            status,
+            cls
+          });
         }
-
-        results.push({
-          c1:cpts[i],
-          c2:cpts[j],
-          status,
-          cls
-        });
       }
     }
-  }
+
+  });
 
   return results;
 }
 
-/* =========================
-   AUDIT RUN
-========================= */
+/* ================= AUDIT ================= */
 function runAudit(){
 
   let input = document.getElementById("auditInput").value;
@@ -233,6 +251,10 @@ function runAudit(){
     </div>`;
   });
 
+  if(edits.length === 0){
+    html += `<div class="card">No NCCI conflicts found</div>`;
+  }
+
   edits.forEach(e=>{
     html += `
     <div class="card ${e.cls}">
@@ -243,16 +265,14 @@ function runAudit(){
   document.getElementById("auditResult").innerHTML = html;
 }
 
-/* =========================
-   DENIAL (SIMPLE MOCK)
-========================= */
+/* ================= DENIAL ================= */
 function runDenial(){
   let text = document.getElementById("denialInput").value;
 
-  let result = `
+  let html = `
   <div class="card">
   <b>✅ Brief Answer:</b><br>
-  ${text} likely due to documentation or modifier issue.<br><br>
+  Possible denial due to documentation or coding issue.<br><br>
 
   <b>🔸 Common Causes:</b><br>
   Missing documentation<br>
@@ -262,11 +282,10 @@ function runDenial(){
   Review notes and resubmit<br><br>
 
   <b>💡 Summary:</b><br>
-  Verify coding and documentation.
-  </div>
-  `;
+  Validate coding and documentation.
+  </div>`;
 
-  document.getElementById("denialResult").innerHTML = result;
+  document.getElementById("denialResult").innerHTML = html;
 }
 
 </script>
