@@ -177,7 +177,7 @@ function checkNCCI(cpts){
 
   let groups = {};
 
-  // group CPTs
+  // Group by edit ID
   ncciData.forEach(row=>{
     if(!groups[row.group]){
       groups[row.group] = [];
@@ -186,6 +186,7 @@ function checkNCCI(cpts){
   });
 
   let results = [];
+  let seenPairs = new Set(); // 🔥 prevents duplicates
 
   Object.values(groups).forEach(group=>{
 
@@ -197,6 +198,12 @@ function checkNCCI(cpts){
 
       for(let i=0;i<matched.length;i++){
         for(let j=i+1;j<matched.length;j++){
+
+          let pairKey = matched[i] + "-" + matched[j];
+
+          // 🚫 skip duplicates
+          if(seenPairs.has(pairKey)) continue;
+          seenPairs.add(pairKey);
 
           let mod = group.find(x => x.cpt === matched[i])?.modifier;
 
