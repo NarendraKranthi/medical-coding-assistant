@@ -66,6 +66,8 @@ button {
 .green { background:#e6ffe6; }
 
 .code { font-weight:bold; color:#2d6cdf; }
+
+a { color:#2d6cdf; text-decoration:none; }
 </style>
 </head>
 
@@ -110,6 +112,9 @@ button {
 
 <script>
 
+/* 🔗 BACKEND URL (REPLACE THIS) */
+const API_BASE = "https://your-backend-name.onrender.com";
+
 /* ---------- TAB ---------- */
 function switchTab(type){
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
@@ -122,6 +127,16 @@ function switchTab(type){
     auditBox.style.display="none";
     denialBox.style.display="block";
     document.querySelectorAll(".tab")[1].classList.add("active");
+  }
+}
+
+/* ---------- FETCH CMS DATA ---------- */
+async function fetchLCDData(cpt, state){
+  try {
+    const res = await fetch(`${API_BASE}/lcd/${cpt}/${state}`);
+    return await res.json();
+  } catch (err) {
+    return { error: true };
   }
 }
 
@@ -147,6 +162,7 @@ loadNCCI();
 
 /* ---------- EXCLUDES1 ---------- */
 let EXCLUDES1 = {};
+
 async function loadExcludes(){
   const res = await fetch("icd_excludes1.json");
   EXCLUDES1 = await res.json();
@@ -159,62 +175,9 @@ const EXCLUDES1_CATEGORY = {
   "E11": ["E10"]
 };
 
-/* ---------- MEDICAL RULES ---------- */
-const MEDICAL_RULES = {
-  "97810": {
-    states: {
-      "CA": { icd:["M54","M79"], lcd:"L12345" },
-      "TX": { icd:["M54"], lcd:"L56789" },
-      "general": { icd:["M54","M79"], ncd:"NCD 30.3" }
-    }
-  },
-  "20553": {
-    states: {
-      "general": { icd:["M79","M54"], ncd:"NCD 150.3" }
-    }
-  },
-  "99213": {
-    states: {
-      "general": { icd:["ANY"], note:"E/M covered" }
-    }
-  }
-};
-
 /* ---------- HELPERS ---------- */
 function getCategory(code){
   return code.split(".")[0];
-}
-
-/* ---------- MEDICAL NECESSITY ---------- */
-function checkMedical(cpt, icds, state){
-
-  let rule = MEDICAL_RULES[cpt];
-  if(!rule){
-    return {cls:"orange", text:"🟠 Unknown"};
-  }
-
-  let s = rule.states[state] || rule.states["general"];
-
-  if(s.icd.includes("ANY")){
-    return {
-      cls:"green",
-      text:`🟢 Supported (${state.toUpperCase()} | ${s.ncd || s.lcd})`
-    };
-  }
-
-  let match = icds.some(icd => s.icd.includes(getCategory(icd)));
-
-  if(match){
-    return {
-      cls:"green",
-      text:`🟢 Supported (${state.toUpperCase()} | ${s.ncd || s.lcd})`
-    };
-  }
-
-  return {
-    cls:"red",
-    text:`🔴 Not Supported (${state.toUpperCase()})`
-  };
 }
 
 /* ---------- EXCLUDES CHECK ---------- */
@@ -246,16 +209,16 @@ function checkExcludes(icds){
 /* ---------- MODIFIER ---------- */
 function getModifier(c1,c2,mod){
 
-  if(mod==="0") return {cls:"red",text:"❌ Not allowed"};
+  if(mod==="0") return "❌ Not allowed";
 
   if(mod==="1"){
     if(/^99/.test(c1)||/^99/.test(c2)){
-      return {cls:"orange",text:"⚠️ Modifier 25"};
+      return "⚠️ Modifier 25";
     }
-    return {cls:"orange",text:"⚠️ Modifier 59"};
+    return "⚠️ Modifier 59";
   }
 
-  return {cls:"green",text:"✅ Allowed"};
+  return "✅ Allowed";
 }
 
 /* ---------- NCCI ---------- */
@@ -283,7 +246,7 @@ function checkNCCI(cpts){
           let mod=g.find(x=>x.cpt===m[i])?.modifier;
           let r=getModifier(m[i],m[j],mod);
 
-          res.push(`${m[i]} + ${m[j]} → ${r.text}`);
+          res.push(`${m[i]} + ${m[j]} → ${r}`);
         }
       }
     }
@@ -304,7 +267,7 @@ function parse(text){
 }
 
 /* ---------- RUN AUDIT ---------- */
-function runAudit(){
+async function runAudit(){
 
   let input=document.getElementById("auditInput").value;
   let state=document.getElementById("state").value;
@@ -314,20 +277,47 @@ function runAudit(){
   let html="";
   let allICD=[];
 
-  data.forEach(d=>{
+  for(let d of data){
+
     allICD.push(...d.icd);
 
-    let med=checkMedical(d.cpt,d.icd,state);
+    let lcdData = await fetchLCDData(d.cpt, state);
+
+    let cls="orange";
+    let cmsText="🟠 No CMS data";
+
+    if(lcdData && lcdData.icds){
+
+      let match = d.icd.some(icd =>
+        lcdData.icds.includes(icd)
+      );
+
+      if(match){
+        cls="green";
+        cmsText=`
+        🟢 Supported — Diagnosis supports procedure<br>
+        (${state.toUpperCase()} | LCD: ${lcdData.lcd})<br>
+        <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${lcdData.lcd}" target="_blank">🔗 View LCD</a>
+        `;
+      } else {
+        cls="red";
+        cmsText=`
+        🔴 Not Supported<br>
+        (${state.toUpperCase()} | LCD: ${lcdData.lcd})<br>
+        <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${lcdData.lcd}" target="_blank">🔗 View LCD</a>
+        `;
+      }
+    }
 
     html+=`
-    <div class="card ${med.cls}">
+    <div class="card ${cls}">
       <div class="code">CPT ${d.cpt}</div>
-      ICD: ${d.icd.join(", ")}<br>
-      ${med.text}
+      ICD: ${d.icd.join(", ")}<br><br>
+      ${cmsText}
     </div>`;
-  });
+  }
 
-  // Excludes
+  // Excludes1
   checkExcludes(allICD).forEach(x=>{
     html+=`<div class="card red">${x}</div>`;
   });
