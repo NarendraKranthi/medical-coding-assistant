@@ -2,47 +2,103 @@
 <head>
 <title>Medical Coding Assistant</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
-body { font-family: Arial; background:#eef2f7; margin:0; }
-.header { background:#2563eb; color:white; padding:15px; text-align:center; font-weight:bold; }
+body { font-family: Arial; background:#f1f5f9; margin:0; }
 
-.container { max-width:750px; margin:20px auto; background:white; padding:20px; border-radius:10px; }
+.header {
+  background:#2563eb;
+  color:white;
+  padding:15px;
+  text-align:center;
+  font-size:18px;
+  font-weight:bold;
+}
 
-.tab { display:flex; margin-bottom:15px; }
-.tab button { flex:1; padding:10px; border:none; background:#e5e7eb; cursor:pointer; }
-.tab button.active { background:#2563eb; color:white; }
+.container {
+  max-width:750px;
+  margin:20px auto;
+  background:white;
+  padding:20px;
+  border-radius:10px;
+}
+
+.tab {
+  display:flex;
+  margin-bottom:15px;
+}
+
+.tab button {
+  flex:1;
+  padding:10px;
+  border:none;
+  background:#e5e7eb;
+  cursor:pointer;
+  font-weight:bold;
+}
+
+.tab button.active {
+  background:#2563eb;
+  color:white;
+}
 
 input, textarea {
-  width:100%; padding:10px; margin-top:8px;
-  border-radius:6px; border:1px solid #ccc;
+  width:100%;
+  padding:10px;
+  margin-top:10px;
+  border-radius:6px;
+  border:1px solid #ccc;
 }
 
 button.action {
-  margin-top:10px; background:#2563eb; color:white;
-  border:none; padding:10px; border-radius:6px;
+  margin-top:10px;
+  background:#2563eb;
+  color:white;
+  border:none;
+  padding:10px;
+  border-radius:6px;
+  width:100%;
 }
 
 .result-box {
-  margin-top:10px; padding:12px; border-radius:6px;
+  margin-top:12px;
+  padding:12px;
+  border-radius:8px;
+  font-size:14px;
+  line-height:1.5;
 }
 
 .ok { background:#ecfdf5; }
 .warn { background:#fff7ed; }
 .error { background:#fee2e2; }
 
-.cpt { background:#dbeafe; padding:2px 5px; border-radius:4px; }
-.icd { background:#dcfce7; padding:2px 5px; border-radius:4px; }
+.cpt {
+  background:#dbeafe;
+  padding:3px 6px;
+  border-radius:4px;
+  font-weight:bold;
+}
+
+.icd {
+  background:#dcfce7;
+  padding:3px 6px;
+  border-radius:4px;
+}
 
 </style></head><body><div class="header">🏥 Medical Coding Assistant</div><div class="container"><!-- TABS --><div class="tab">
   <button class="active" onclick="showTab('denial', event)">Denial</button>
   <button onclick="showTab('audit', event)">Audit</button>
-</div><!-- DENIAL TOOL --><div id="denialTab">  <input id="query" placeholder="Enter denial / CPT / ICD">
+</div><!-- DENIAL --><div id="denialTab">
+  <input id="query" placeholder="Enter CPT / ICD / Denial text">
   <input id="payer" placeholder="Insurance (optional)">
-  <button class="action" onclick="search()">Search</button>  <div id="result"></div></div><!-- AUDIT TOOL --><div id="auditTab" style="display:none;">  <textarea id="auditInput" rows="6" placeholder="Example:
-99213 - 25 - M54.59,M54.41
-97810 - M54.2
+  <button class="action" onclick="search()">Search</button>
+  <div id="result"></div>
+</div><!-- AUDIT --><div id="auditTab" style="display:none;">
+  <textarea id="auditInput" rows="6" placeholder="Examples:
+99213 - 25 - I10, I11.0
+97810 M54.2
 20553 - M53.3"></textarea><button class="action" onclick="runAudit()">Run Audit</button>
 
-  <div id="auditResult"></div></div></div><script>
+  <div id="auditResult"></div>
+</div></div><script>
 
 // TAB SWITCH
 function showTab(tab, e){
@@ -53,111 +109,142 @@ function showTab(tab, e){
   e.target.classList.add("active");
 }
 
-// DENIAL SEARCH
+// DENIAL API
 async function search(){
   let query = document.getElementById("query").value;
   let payer = document.getElementById("payer").value;
 
   document.getElementById("result").innerHTML="Loading...";
 
-  let res = await fetch("https://medical-coding-assistant.onrender.com/api/search",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({query,payer})
-  });
+  try {
+    let res = await fetch("https://medical-coding-assistant.onrender.com/api/search",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({query,payer})
+    });
 
-  let data = await res.json();
+    let data = await res.json();
 
-  let text = data.answer
-    .replace(/\n/g,"<br>")
-    .replace(/\b\d{5}\b/g, m=>`<span class="cpt">${m}</span>`)
-    .replace(/\b[A-TV-Z]\d{2}(\.\d+)?\b/g, m=>`<span class="icd">${m}</span>`);
+    let text = data.answer
+      .replace(/\n/g,"<br>")
+      .replace(/\b\d{5}\b/g, m=>`<span class="cpt">${m}</span>`)
+      .replace(/\b[A-TV-Z]\d{2}(\.\d+)?\b/g, m=>`<span class="icd">${m}</span>`);
 
-  document.getElementById("result").innerHTML = `<div class="result-box ok">${text}</div>`;
+    document.getElementById("result").innerHTML =
+      `<div class="result-box ok">${text}</div>`;
+
+  } catch {
+    document.getElementById("result").innerHTML =
+      `<div class="result-box error">⚠ Backend not connected</div>`;
+  }
 }
 
 // AUDIT ENGINE
 async function runAudit(){
 
   let lines = document.getElementById("auditInput").value.trim().split("\n");
-  let allCPTs = lines.map(l=>l.split("-")[0].trim());
+  let output = "";
 
-  let output="";
+  const CPT_REGEX = /^\d{5}$/;
+  const MOD_REGEX = /^\d{2}$/;
+  const ICD_REGEX = /^[A-TV-Z]\d{2}(\.\d+)?$/;
 
-  // Column1 / Column2 logic
   const NCCI = [
     {col1:"97810", col2:"97811", type:"block"},
     {col1:"20553", col2:"20550", type:"modifier", modifier:"59"},
     {col1:"99213", col2:"97810", type:"modifier", modifier:"25"}
   ];
 
-  // Excludes1
   const EXCLUDES1 = [
     {a:"M54.5", b:"M54.59"},
     {a:"E11.9", b:"E11.65"}
   ];
 
+  let parsed = [];
+
+  // PARSE
   for (let line of lines){
 
-    let parts = line.split("-");
-    let cpt = parts[0].trim();
-    let mod = parts[1]?.trim();
-    let icds = parts[2]?.split(",").map(x=>x.trim()) || [];
+    let tokens = line
+      .replace(/-/g," ")
+      .replace(/,/g," ")
+      .split(/\s+/)
+      .filter(Boolean);
 
-    let status = "ok";
-    let msg = `<b>🔵 CPT ${cpt}</b><br>`;
+    let cpt="", mod="", icds=[];
 
-    // NCCI Column logic
+    tokens.forEach(t=>{
+      if(CPT_REGEX.test(t)) cpt=t;
+      else if(MOD_REGEX.test(t)) mod=t;
+      else if(ICD_REGEX.test(t)) icds.push(t);
+    });
+
+    parsed.push({cpt, mod, icds});
+  }
+
+  let allCPTs = parsed.map(x=>x.cpt);
+
+  // PROCESS
+  for (let item of parsed){
+
+    let {cpt, mod, icds} = item;
+
+    let status="ok";
+    let msg = `<b>🔵 CPT <span class="cpt">${cpt}</span></b><br>`;
+
+    // NCCI
     NCCI.forEach(rule=>{
       if(allCPTs.includes(rule.col1) && allCPTs.includes(rule.col2)){
 
         if(cpt===rule.col2){
           status="error";
-          msg += `❌ Column 2 CPT (${rule.col2}) should NOT be billed with Column 1 (${rule.col1})<br>`;
+          msg += `❌ Column 2 should NOT be billed with Column 1 (${rule.col1})<br>`;
         }
 
         if(rule.type==="modifier"){
           if(mod===rule.modifier){
             status="warn";
             msg += `🟠 Allowed with modifier ${rule.modifier}<br>`;
-          }else{
+          } else {
             status="error";
-            msg += `❌ Add modifier ${rule.modifier}<br>`;
+            msg += `❌ Missing modifier ${rule.modifier}<br>`;
           }
         }
       }
     });
 
-    // Excludes1
+    // EXCLUDES1
     icds.forEach(i=>{
       icds.forEach(j=>{
         EXCLUDES1.forEach(r=>{
           if((r.a===i && r.b===j)||(r.a===j && r.b===i)){
             status="error";
-            msg += `⛔ Excludes1: ${i} & ${j}<br>`;
+            msg += `⛔ Excludes1: <span class="icd">${i}</span> & <span class="icd">${j}</span><br>`;
           }
         });
       });
     });
 
-    // 🤖 Medical Necessity (AI)
-    let aiMsg = "";
-    try {
+    // AI CHECK
+    let aiMsg="";
+    try{
       let res = await fetch("https://medical-coding-assistant.onrender.com/api/search",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          query: `Check medical necessity for CPT ${cpt} with ICD ${icds.join(", ")}`
+          query:`Check medical necessity for CPT ${cpt} with ICD ${icds.join(", ")}`
         })
       });
+
       let data = await res.json();
-      aiMsg = data.answer.split("\n")[0]; // short answer
+      aiMsg = data.answer.split("\n")[0];
+
     } catch {
-      aiMsg = "AI check unavailable";
+      aiMsg = "⚠ Backend not connected";
     }
 
     msg += `🤖 Medical Necessity: ${aiMsg}<br>`;
-    msg += `🟢 ICD: ${icds.join(", ")}`;
+    msg += `🟢 ICD: ${icds.map(i=>`<span class="icd">${i}</span>`).join(", ")}`;
 
     output += `<div class="result-box ${status}">${msg}</div>`;
   }
