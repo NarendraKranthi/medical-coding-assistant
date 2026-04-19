@@ -5,11 +5,7 @@
 <title>Medical Coding Assistant</title>
 
 <style>
-body {
-  font-family: Arial;
-  background:#f4f6f9;
-  margin:0;
-}
+body { font-family: Arial; background:#f4f6f9; margin:0; }
 
 .header {
   background:#2d6cdf;
@@ -19,14 +15,9 @@ body {
   font-size:20px;
 }
 
-.container {
-  padding:15px;
-}
+.container { padding:15px; }
 
-.tabs {
-  display:flex;
-  margin-bottom:10px;
-}
+.tabs { display:flex; margin-bottom:10px; }
 
 .tab {
   flex:1;
@@ -36,10 +27,7 @@ body {
   cursor:pointer;
 }
 
-.tab.active {
-  background:#2d6cdf;
-  color:white;
-}
+.tab.active { background:#2d6cdf; color:white; }
 
 textarea {
   width:100%;
@@ -60,7 +48,6 @@ button {
 }
 
 .card {
-  background:white;
   padding:12px;
   border-radius:10px;
   margin-top:12px;
@@ -71,10 +58,7 @@ button {
 .orange { background:#fff3cd; }
 .green { background:#e6ffe6; }
 
-.code {
-  font-weight:bold;
-  color:#2d6cdf;
-}
+.code { font-weight:bold; color:#2d6cdf; }
 </style>
 </head>
 
@@ -91,7 +75,7 @@ button {
 
 <!-- DENIAL -->
 <div id="denialBox">
-<textarea id="denialInput" placeholder="Enter CPT / ICD / Denial"></textarea>
+<textarea id="denialInput" placeholder="Enter denial / CPT / ICD"></textarea>
 <button onclick="runDenial()">Search</button>
 <div id="denialResult"></div>
 </div>
@@ -99,7 +83,7 @@ button {
 <!-- AUDIT -->
 <div id="auditBox" style="display:none;">
 <textarea id="auditInput" placeholder="Example:
-99213 - M54.59
+99213 - I10
 97810 - M54.2
 97811 - M54.2"></textarea>
 
@@ -111,7 +95,7 @@ button {
 
 <script>
 
-/* ================= TAB ================= */
+/* ---------- TAB ---------- */
 function switchTab(type){
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
 
@@ -126,7 +110,7 @@ function switchTab(type){
   }
 }
 
-/* ================= NCCI LOAD ================= */
+/* ---------- LOAD NCCI ---------- */
 let ncciData = [];
 
 async function loadNCCI(){
@@ -137,11 +121,10 @@ async function loadNCCI(){
 
   ncciData = rows.map(r=>{
     let c = r.split(",");
-
     return {
-      group: c[0]?.trim(),      // Column1
-      cpt: c[1]?.trim(),        // Column2
-      modifier: c[5]?.trim() || c[4]?.trim() // fallback
+      group: c[0]?.trim(),
+      cpt: c[1]?.trim(),
+      modifier: c[5]?.trim() || c[4]?.trim()
     };
   });
 
@@ -150,7 +133,7 @@ async function loadNCCI(){
 
 loadNCCI();
 
-/* ================= PARSER ================= */
+/* ---------- PARSER ---------- */
 function parseInput(text){
   let lines = text.split("\n");
   let data = [];
@@ -172,12 +155,44 @@ function parseInput(text){
   return data;
 }
 
-/* ================= NCCI GROUP LOGIC ================= */
+/* ---------- MODIFIER LOGIC ---------- */
+function getModifierSuggestion(cpt1, cpt2, ncciModifier){
+
+  const isEM1 = /^99\d{3}$/.test(cpt1);
+  const isEM2 = /^99\d{3}$/.test(cpt2);
+
+  let result = { text:"", class:"green" };
+
+  if(ncciModifier === "0"){
+    result.text = "❌ Do NOT Code Together";
+    result.class = "red";
+    return result;
+  }
+
+  if(ncciModifier === "1"){
+
+    if(isEM1 || isEM2){
+      result.text = "⚠️ Use Modifier 25 (E/M + Procedure)";
+      result.class = "orange";
+      return result;
+    } else {
+      result.text = "⚠️ Use Modifier 59 (Distinct Procedure)";
+      result.class = "orange";
+      return result;
+    }
+  }
+
+  result.text = "✅ Allowed";
+  return result;
+}
+
+/* ---------- NCCI CHECK ---------- */
 function checkNCCI(cpts){
 
   let groups = {};
+  let results = [];
+  let seen = new Set();
 
-  // Group by edit ID
   ncciData.forEach(row=>{
     if(!groups[row.group]){
       groups[row.group] = [];
@@ -185,13 +200,9 @@ function checkNCCI(cpts){
     groups[row.group].push(row);
   });
 
-  let results = [];
-  let seenPairs = new Set(); // 🔥 prevents duplicates
-
   Object.values(groups).forEach(group=>{
 
     let groupCPTs = group.map(x=>x.cpt);
-
     let matched = cpts.filter(c => groupCPTs.includes(c));
 
     if(matched.length > 1){
@@ -199,51 +210,34 @@ function checkNCCI(cpts){
       for(let i=0;i<matched.length;i++){
         for(let j=i+1;j<matched.length;j++){
 
-          let pairKey = matched[i] + "-" + matched[j];
+          let key = matched[i]+"-"+matched[j];
+          if(seen.has(key)) continue;
+          seen.add(key);
 
-          // 🚫 skip duplicates
-          if(seenPairs.has(pairKey)) continue;
-          seenPairs.add(pairKey);
+          let mod = group.find(x=>x.cpt===matched[i])?.modifier;
 
-          let mod = group.find(x => x.cpt === matched[i])?.modifier;
-
-          let status="";
-          let cls="green";
-
-          if(mod==="0"){
-            status="❌ Do NOT Code Together";
-            cls="red";
-          }
-          else if(mod==="1"){
-            status="⚠️ Modifier Required (59/XS/XE)";
-            cls="orange";
-          }
-          else{
-            status="Allowed";
-          }
+          let res = getModifierSuggestion(matched[i], matched[j], mod);
 
           results.push({
             c1: matched[i],
             c2: matched[j],
-            status,
-            cls
+            status: res.text,
+            cls: res.class
           });
         }
       }
     }
-
   });
 
   return results;
 }
 
-/* ================= AUDIT ================= */
+/* ---------- AUDIT ---------- */
 function runAudit(){
 
   let input = document.getElementById("auditInput").value;
 
   let parsed = parseInput(input);
-
   let cpts = parsed.map(x=>x.cpt);
 
   let edits = checkNCCI(cpts);
@@ -272,14 +266,14 @@ function runAudit(){
   document.getElementById("auditResult").innerHTML = html;
 }
 
-/* ================= DENIAL ================= */
+/* ---------- DENIAL ---------- */
 function runDenial(){
   let text = document.getElementById("denialInput").value;
 
   let html = `
   <div class="card">
   <b>✅ Brief Answer:</b><br>
-  Possible denial due to documentation or coding issue.<br><br>
+  Possible denial due to documentation or modifier issue.<br><br>
 
   <b>🔸 Common Causes:</b><br>
   Missing documentation<br>
