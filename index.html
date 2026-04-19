@@ -1,151 +1,275 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
+<meta charset="UTF-8">
 <title>Medical Coding Assistant</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
-body { font-family: Arial; background:#f3f6fb; margin:0; }
 
-.header { background:#2563eb; color:white; padding:15px; text-align:center; font-weight:bold; }
+<style>
+body {
+  font-family: Arial;
+  background:#f4f6f9;
+  margin:0;
+}
 
-.container { max-width:800px; margin:20px auto; background:white; padding:20px; border-radius:10px; }
+.header {
+  background:#2d6cdf;
+  color:white;
+  padding:15px;
+  text-align:center;
+  font-size:20px;
+}
 
-.tabs { display:flex; margin-bottom:15px; }
-.tab { flex:1; padding:10px; text-align:center; background:#e5e7eb; cursor:pointer; }
-.active { background:#2563eb; color:white; }
+.container {
+  padding:15px;
+}
 
-textarea, input {
-  width:100%; padding:10px; margin-top:10px;
-  border-radius:6px; border:1px solid #ccc;
+.tabs {
+  display:flex;
+  margin-bottom:10px;
+}
+
+.tab {
+  flex:1;
+  padding:10px;
+  text-align:center;
+  background:#ddd;
+  cursor:pointer;
+}
+
+.tab.active {
+  background:#2d6cdf;
+  color:white;
+}
+
+textarea {
+  width:100%;
+  height:120px;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ccc;
 }
 
 button {
-  width:100%; padding:10px; margin-top:10px;
-  background:#2563eb; color:white; border:none;
+  margin-top:10px;
+  padding:10px;
+  background:#2d6cdf;
+  color:white;
+  border:none;
   border-radius:6px;
+  cursor:pointer;
 }
 
 .card {
-  margin-top:12px; padding:12px;
-  border-radius:8px;
+  background:white;
+  padding:12px;
+  border-radius:10px;
+  margin-top:12px;
+  box-shadow:0 2px 5px rgba(0,0,0,0.1);
 }
 
-.ok { background:#ecfdf5; }
-.warn { background:#fff7ed; }
-.error { background:#fee2e2; }
+.red { background:#ffe5e5; }
+.orange { background:#fff3cd; }
+.green { background:#e6ffe6; }
 
-.cpt { background:#dbeafe; padding:3px 6px; border-radius:4px; }
-.icd { background:#dcfce7; padding:3px 6px; border-radius:4px; }
+.code {
+  font-weight:bold;
+  color:#2d6cdf;
+}
+</style>
+</head>
 
-</style></head><body><div class="header">🏥 Medical Coding Assistant</div><div class="container"><div class="tabs">
-  <div class="tab active" onclick="switchTab('denial',event)">Denial</div>
-  <div class="tab" onclick="switchTab('audit',event)">Audit</div>
-</div><!-- DENIAL --><div id="denialTab">
-  <input id="query" placeholder="Enter denial / CPT / ICD">
-  <button onclick="runDenial()">Search</button>
-  <div id="denialResult"></div>
-</div><!-- AUDIT --><div id="auditTab" style="display:none;">
-  <textarea id="auditInput" rows="6" placeholder="Enter CPT / ICD / Modifier"></textarea>
-  <button onclick="runAudit()">Run Audit</button>
-  <div id="auditResult"></div>
-</div></div><script>
+<body>
 
-// TAB
-function switchTab(tab,e){
-  document.getElementById("denialTab").style.display = tab==="denial"?"block":"none";
-  document.getElementById("auditTab").style.display = tab==="audit"?"block":"none";
+<div class="header">🏥 Medical Coding Assistant</div>
+
+<div class="container">
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('denial')">Denial</div>
+  <div class="tab" onclick="switchTab('audit')">Audit</div>
+</div>
+
+<!-- DENIAL -->
+<div id="denialBox">
+<textarea id="denialInput" placeholder="Enter CPT / ICD / Denial"></textarea>
+<button onclick="runDenial()">Search</button>
+<div id="denialResult"></div>
+</div>
+
+<!-- AUDIT -->
+<div id="auditBox" style="display:none;">
+<textarea id="auditInput" placeholder="Example:
+99213 - M54.59
+97810 - M54.2"></textarea>
+
+<button onclick="runAudit()">Run Audit</button>
+<div id="auditResult"></div>
+</div>
+
+</div>
+
+<script>
+
+/* =========================
+   TAB SWITCH
+========================= */
+function switchTab(type){
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-  e.target.classList.add("active");
+
+  if(type==="denial"){
+    document.getElementById("denialBox").style.display="block";
+    document.getElementById("auditBox").style.display="none";
+    document.querySelectorAll(".tab")[0].classList.add("active");
+  } else {
+    document.getElementById("denialBox").style.display="none";
+    document.getElementById("auditBox").style.display="block";
+    document.querySelectorAll(".tab")[1].classList.add("active");
+  }
 }
 
-// ---------------- SMART PARSER ----------------
-function parseLine(line){
+/* =========================
+   NCCI LOAD
+========================= */
+let ncciData = [];
 
-  let tokens = line
-    .replace(/-/g," ")
-    .replace(/,/g," ")
-    .split(/\s+/)
-    .filter(Boolean);
+async function loadNCCI(){
+  const res = await fetch("ncci.csv");
+  const text = await res.text();
 
-  let cpt="", mod="", icds=[];
+  const rows = text.split("\n").slice(1);
 
-  tokens.forEach(t=>{
-    if(/^\d{5}$/.test(t)) cpt = t;
-    else if(/^\d{2}$/.test(t)) mod = t;
-    else if(/^[A-TV-Z]\d{2}(\.\d+)?$/.test(t)) icds.push(t);
+  ncciData = rows.map(r=>{
+    let c = r.split(",");
+    return {
+      col1: c[0]?.trim(),
+      col2: c[1]?.trim(),
+      modifier: c[5]?.trim()
+    };
   });
 
-  return {cpt, mod, icds};
+  console.log("NCCI Loaded", ncciData.length);
+}
+loadNCCI();
+
+/* =========================
+   PARSER
+========================= */
+function parseInput(text){
+  let lines = text.split("\n");
+  let data = [];
+
+  lines.forEach(line=>{
+    let parts = line.split("-");
+    let cpt = parts[0]?.trim();
+    let icd = parts[1]?.split(",").map(x=>x.trim()) || [];
+
+    if(cpt) data.push({cpt, icd});
+  });
+
+  return data;
 }
 
-// ---------------- CMS-LIKE NCCI DATA ----------------
-const NCCI_DATA = [
-  {col1:"20553", col2:"20550", mod:"0"},
-  {col1:"99213", col2:"97810", mod:"1"},
-  {col1:"97810", col2:"97811", mod:"0"}
-];
+/* =========================
+   NCCI CHECK
+========================= */
+function checkNCCI(cpts){
+  let results=[];
 
-// ---------------- DENIAL ----------------
-function runDenial(){
-  let input = document.getElementById("query").value;
+  for(let i=0;i<cpts.length;i++){
+    for(let j=0;j<cpts.length;j++){
+      if(i===j) continue;
 
-  document.getElementById("denialResult").innerHTML =
-    `<div class="card ok">
-      <b>Demo Response:</b><br>${input}
-    </div>`;
+      let m = ncciData.find(
+        x => x.col1===cpts[i] && x.col2===cpts[j]
+      );
+
+      if(m){
+        let status = "";
+        let cls="green";
+
+        if(m.modifier==="0"){
+          status="Do NOT Code Together";
+          cls="red";
+        } else if(m.modifier==="1"){
+          status="Modifier Needed (59)";
+          cls="orange";
+        } else {
+          status="Allowed";
+        }
+
+        results.push({
+          c1:cpts[i],
+          c2:cpts[j],
+          status,
+          cls
+        });
+      }
+    }
+  }
+
+  return results;
 }
 
-// ---------------- AUDIT ----------------
+/* =========================
+   AUDIT RUN
+========================= */
 function runAudit(){
 
-  let lines = document.getElementById("auditInput").value.trim().split("\n");
-  let parsed = lines.map(parseLine);
-  let allCPTs = parsed.map(p=>p.cpt);
+  let input = document.getElementById("auditInput").value;
 
-  let output = "";
+  let parsed = parseInput(input);
+
+  let cpts = parsed.map(x=>x.cpt);
+
+  let edits = checkNCCI(cpts);
+
+  let html="";
 
   parsed.forEach(item=>{
-
-    let {cpt, mod, icds} = item;
-
-    let status="ok";
-    let msg = `<b>🔵 CPT <span class="cpt">${cpt}</span></b><br>`;
-
-    // NCCI CHECK
-    NCCI_DATA.forEach(rule=>{
-
-      if(allCPTs.includes(rule.col1) && allCPTs.includes(rule.col2)){
-
-        if(cpt === rule.col2){
-          status="error";
-          msg += `❌ Column2 (${rule.col2}) cannot be billed with Column1 (${rule.col1})<br>`;
-        }
-
-        if(rule.mod === "0"){
-          status="error";
-          msg += `🚫 Modifier NOT allowed<br>`;
-        }
-
-        if(rule.mod === "1"){
-          if(mod==="59"){
-            status="warn";
-            msg += `🟠 Modifier 59 used correctly<br>`;
-          } else {
-            status="warn";
-            msg += `💡 Suggest Modifier 59<br>`;
-          }
-        }
-
-      }
-
-    });
-
-    msg += `🟢 ICD: ${icds.map(i=>`<span class="icd">${i}</span>`).join(", ")}`;
-
-    output += `<div class="card ${status}">${msg}</div>`;
-
+    html += `
+    <div class="card green">
+      <div class="code">CPT ${item.cpt}</div>
+      ICD: ${item.icd.join(", ")}
+    </div>`;
   });
 
-  document.getElementById("auditResult").innerHTML = output;
+  edits.forEach(e=>{
+    html += `
+    <div class="card ${e.cls}">
+      ${e.c1} + ${e.c2} → ${e.status}
+    </div>`;
+  });
+
+  document.getElementById("auditResult").innerHTML = html;
 }
 
-</script></body>
+/* =========================
+   DENIAL (SIMPLE MOCK)
+========================= */
+function runDenial(){
+  let text = document.getElementById("denialInput").value;
+
+  let result = `
+  <div class="card">
+  <b>✅ Brief Answer:</b><br>
+  ${text} likely due to documentation or modifier issue.<br><br>
+
+  <b>🔸 Common Causes:</b><br>
+  Missing documentation<br>
+  Incorrect modifier<br><br>
+
+  <b>🛠️ Fix:</b><br>
+  Review notes and resubmit<br><br>
+
+  <b>💡 Summary:</b><br>
+  Verify coding and documentation.
+  </div>
+  `;
+
+  document.getElementById("denialResult").innerHTML = result;
+}
+
+</script>
+
+</body>
 </html>
