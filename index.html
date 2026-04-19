@@ -1,248 +1,151 @@
-<!DOCTYPE html>
-<html>
+<!DOCTYPE html><html>
 <head>
-  <title>Medical Coding Assistant</title>
+<title>Medical Coding Assistant</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>
+body { font-family: Arial; background:#f3f6fb; margin:0; }
 
-  <style>
-    body {
-      font-family: Arial;
-      background: #f4f6f9;
-      margin: 0;
-    }
+.header { background:#2563eb; color:white; padding:15px; text-align:center; font-weight:bold; }
 
-    header {
-      background: #2d6cdf;
-      color: white;
-      padding: 15px;
-      text-align: center;
-      font-size: 18px;
-      font-weight: bold;
-    }
+.container { max-width:800px; margin:20px auto; background:white; padding:20px; border-radius:10px; }
 
-    .container {
-      max-width: 800px;
-      margin: 20px auto;
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-    }
+.tabs { display:flex; margin-bottom:15px; }
+.tab { flex:1; padding:10px; text-align:center; background:#e5e7eb; cursor:pointer; }
+.active { background:#2563eb; color:white; }
 
-    .tabs {
-      display: flex;
-      margin-bottom: 15px;
-    }
-
-    .tab {
-      flex: 1;
-      padding: 10px;
-      text-align: center;
-      cursor: pointer;
-      background: #ddd;
-    }
-
-    .active {
-      background: #2d6cdf;
-      color: white;
-    }
-
-    textarea, input {
-      width: 100%;
-      padding: 10px;
-      margin: 10px 0;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-    }
-
-    button {
-      width: 100%;
-      padding: 12px;
-      background: #2d6cdf;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-
-    .card {
-      margin-top: 15px;
-      padding: 15px;
-      border-radius: 8px;
-    }
-
-    .green { background: #e6f4ea; }
-    .red { background: #fdecea; }
-    .orange { background: #fff4e5; }
-
-    .title {
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-
-    .small {
-      font-size: 13px;
-      color: #555;
-    }
-  </style>
-</head>
-
-<body>
-
-<header>🏥 Medical Coding Assistant</header>
-
-<div class="container">
-
-  <!-- Tabs -->
-  <div class="tabs">
-    <div class="tab active" onclick="switchTab('denial')">Denial</div>
-    <div class="tab" onclick="switchTab('audit')">Audit</div>
-  </div>
-
-  <!-- Denial -->
-  <div id="denialSection">
-    <input id="denialInput" placeholder="Enter denial / CPT / ICD / paragraph">
-    <input id="payer" placeholder="Insurance (optional)">
-    <button onclick="runDenial()">Search</button>
-    <div id="denialResult"></div>
-  </div>
-
-  <!-- Audit -->
-  <div id="auditSection" style="display:none;">
-    <textarea id="auditInput" rows="6"
-      placeholder="Example:
-99213 - I10,E11.9
-20553
-20550"></textarea>
-
-    <button onclick="runAudit()">Run Audit</button>
-    <div id="auditResult"></div>
-  </div>
-
-</div>
-
-<script>
-
-// ---------------- TAB SWITCH ----------------
-function switchTab(tab) {
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-  event.target.classList.add("active");
-
-  document.getElementById("denialSection").style.display = tab === "denial" ? "block" : "none";
-  document.getElementById("auditSection").style.display = tab === "audit" ? "block" : "none";
+textarea, input {
+  width:100%; padding:10px; margin-top:10px;
+  border-radius:6px; border:1px solid #ccc;
 }
 
-// ---------------- SAMPLE NCCI DATA ----------------
-const NCCI = [
-  { code1: "20553", code2: "20550", modifier: "0" },
-  { code1: "99213", code2: "97810", modifier: "1" }
+button {
+  width:100%; padding:10px; margin-top:10px;
+  background:#2563eb; color:white; border:none;
+  border-radius:6px;
+}
+
+.card {
+  margin-top:12px; padding:12px;
+  border-radius:8px;
+}
+
+.ok { background:#ecfdf5; }
+.warn { background:#fff7ed; }
+.error { background:#fee2e2; }
+
+.cpt { background:#dbeafe; padding:3px 6px; border-radius:4px; }
+.icd { background:#dcfce7; padding:3px 6px; border-radius:4px; }
+
+</style></head><body><div class="header">🏥 Medical Coding Assistant</div><div class="container"><div class="tabs">
+  <div class="tab active" onclick="switchTab('denial',event)">Denial</div>
+  <div class="tab" onclick="switchTab('audit',event)">Audit</div>
+</div><!-- DENIAL --><div id="denialTab">
+  <input id="query" placeholder="Enter denial / CPT / ICD">
+  <button onclick="runDenial()">Search</button>
+  <div id="denialResult"></div>
+</div><!-- AUDIT --><div id="auditTab" style="display:none;">
+  <textarea id="auditInput" rows="6" placeholder="Enter CPT / ICD / Modifier"></textarea>
+  <button onclick="runAudit()">Run Audit</button>
+  <div id="auditResult"></div>
+</div></div><script>
+
+// TAB
+function switchTab(tab,e){
+  document.getElementById("denialTab").style.display = tab==="denial"?"block":"none";
+  document.getElementById("auditTab").style.display = tab==="audit"?"block":"none";
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  e.target.classList.add("active");
+}
+
+// ---------------- SMART PARSER ----------------
+function parseLine(line){
+
+  let tokens = line
+    .replace(/-/g," ")
+    .replace(/,/g," ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  let cpt="", mod="", icds=[];
+
+  tokens.forEach(t=>{
+    if(/^\d{5}$/.test(t)) cpt = t;
+    else if(/^\d{2}$/.test(t)) mod = t;
+    else if(/^[A-TV-Z]\d{2}(\.\d+)?$/.test(t)) icds.push(t);
+  });
+
+  return {cpt, mod, icds};
+}
+
+// ---------------- CMS-LIKE NCCI DATA ----------------
+const NCCI_DATA = [
+  {col1:"20553", col2:"20550", mod:"0"},
+  {col1:"99213", col2:"97810", mod:"1"},
+  {col1:"97810", col2:"97811", mod:"0"}
 ];
 
-// ---------------- SAMPLE EXCLUDE1 ----------------
-const EXCLUDE1 = {
-  "M54.59": ["M54.2"],
-  "E11.9": ["E10.9"]
-};
-
 // ---------------- DENIAL ----------------
-function runDenial() {
-  let input = document.getElementById("denialInput").value;
+function runDenial(){
+  let input = document.getElementById("query").value;
 
   document.getElementById("denialResult").innerHTML =
-    `<div class="card green">
-      <div class="title">✅ Brief Answer</div>
-      Demo AI response for: ${input}
-      <br><br>
-      🔸 Common Causes:
-      <br>• Documentation issue
-      <br>• Coding mismatch
-      <br><br>
-      🛠️ Fix:
-      <br>• Review notes
-      <br>• Correct CPT/ICD
-      <br><br>
-      💡 Summary:
-      <br>Check documentation + coding
+    `<div class="card ok">
+      <b>Demo Response:</b><br>${input}
     </div>`;
 }
 
 // ---------------- AUDIT ----------------
-function runAudit() {
-  let input = document.getElementById("auditInput").value.trim();
-  let lines = input.split("\n");
+function runAudit(){
 
-  let CPTs = [];
-  let ICDs = [];
+  let lines = document.getElementById("auditInput").value.trim().split("\n");
+  let parsed = lines.map(parseLine);
+  let allCPTs = parsed.map(p=>p.cpt);
 
-  // Parse
-  lines.forEach(line => {
-    let parts = line.split("-");
-    let cpt = parts[0].trim();
-    CPTs.push(cpt);
+  let output = "";
 
-    if (parts[1]) {
-      parts[1].split(",").forEach(icd => ICDs.push(icd.trim()));
-    }
-  });
+  parsed.forEach(item=>{
 
-  let resultHTML = "";
+    let {cpt, mod, icds} = item;
 
-  // CPT Cards
-  CPTs.forEach(cpt => {
-    resultHTML += `
-      <div class="card green">
-        <div class="title">🔵 CPT ${cpt}</div>
-        <div class="small">ICDs: ${ICDs.join(", ") || "None"}</div>
-      </div>
-    `;
-  });
+    let status="ok";
+    let msg = `<b>🔵 CPT <span class="cpt">${cpt}</span></b><br>`;
 
-  // -------- NCCI CHECK --------
-  for (let i = 0; i < CPTs.length; i++) {
-    for (let j = i + 1; j < CPTs.length; j++) {
-      let c1 = CPTs[i];
-      let c2 = CPTs[j];
+    // NCCI CHECK
+    NCCI_DATA.forEach(rule=>{
 
-      NCCI.forEach(rule => {
-        if (
-          (rule.code1 === c1 && rule.code2 === c2) ||
-          (rule.code1 === c2 && rule.code2 === c1)
-        ) {
-          if (rule.modifier === "0") {
-            resultHTML += `
-              <div class="card red">
-                ❌ NCCI: ${c1} + ${c2}<br>
-                🚫 Do NOT bill together
-              </div>`;
-          } else if (rule.modifier === "1") {
-            resultHTML += `
-              <div class="card orange">
-                ⚠️ NCCI: ${c1} + ${c2}<br>
-                👉 Modifier allowed (59)
-              </div>`;
+      if(allCPTs.includes(rule.col1) && allCPTs.includes(rule.col2)){
+
+        if(cpt === rule.col2){
+          status="error";
+          msg += `❌ Column2 (${rule.col2}) cannot be billed with Column1 (${rule.col1})<br>`;
+        }
+
+        if(rule.mod === "0"){
+          status="error";
+          msg += `🚫 Modifier NOT allowed<br>`;
+        }
+
+        if(rule.mod === "1"){
+          if(mod==="59"){
+            status="warn";
+            msg += `🟠 Modifier 59 used correctly<br>`;
+          } else {
+            status="warn";
+            msg += `💡 Suggest Modifier 59<br>`;
           }
         }
-      });
-    }
-  }
 
-  // -------- EXCLUDE1 CHECK --------
-  ICDs.forEach(icd => {
-    if (EXCLUDE1[icd]) {
-      EXCLUDE1[icd].forEach(ex => {
-        if (ICDs.includes(ex)) {
-          resultHTML += `
-            <div class="card red">
-              ❌ Exclude1: ${icd} + ${ex}<br>
-              🚫 Cannot code together
-            </div>`;
-        }
-      });
-    }
+      }
+
+    });
+
+    msg += `🟢 ICD: ${icds.map(i=>`<span class="icd">${i}</span>`).join(", ")}`;
+
+    output += `<div class="card ${status}">${msg}</div>`;
+
   });
 
-  document.getElementById("auditResult").innerHTML = resultHTML;
+  document.getElementById("auditResult").innerHTML = output;
 }
 
-</script>
-
-</body>
+</script></body>
 </html>
