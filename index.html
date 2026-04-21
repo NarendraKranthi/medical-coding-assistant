@@ -6,68 +6,19 @@
 
 <style>
 body { font-family: Arial; background:#f4f6f9; margin:0; }
-
-.header {
-  background:#2d6cdf;
-  color:white;
-  padding:15px;
-  text-align:center;
-  font-size:20px;
-}
-
+.header { background:#2d6cdf; color:white; padding:15px; text-align:center; font-size:20px; }
 .container { padding:15px; }
-
 .tabs { display:flex; margin-bottom:10px; }
-
-.tab {
-  flex:1;
-  padding:10px;
-  text-align:center;
-  background:#ddd;
-  cursor:pointer;
-}
-
+.tab { flex:1; padding:10px; text-align:center; background:#ddd; cursor:pointer; }
 .tab.active { background:#2d6cdf; color:white; }
-
-textarea {
-  width:100%;
-  height:130px;
-  padding:10px;
-  border-radius:8px;
-  border:1px solid #ccc;
-}
-
-select {
-  width:100%;
-  padding:8px;
-  margin-bottom:10px;
-  border-radius:6px;
-}
-
-button {
-  margin-top:10px;
-  padding:10px;
-  background:#2d6cdf;
-  color:white;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-}
-
-.card {
-  padding:12px;
-  border-radius:10px;
-  margin-top:12px;
-  box-shadow:0 2px 5px rgba(0,0,0,0.1);
-}
-
+textarea { width:100%; height:130px; padding:10px; border-radius:8px; border:1px solid #ccc; }
+select, button { width:100%; padding:10px; margin-top:10px; border-radius:6px; }
+button { background:#2d6cdf; color:white; border:none; }
+.card { padding:12px; border-radius:10px; margin-top:12px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
 .red { background:#ffe5e5; }
 .orange { background:#fff3cd; }
 .green { background:#e6ffe6; }
-
 .code { font-weight:bold; color:#2d6cdf; }
-
-a { color:#2d6cdf; text-decoration:none; }
 </style>
 </head>
 
@@ -92,19 +43,18 @@ a { color:#2d6cdf; text-decoration:none; }
   <option value="NY">New York</option>
 </select>
 
-<textarea id="auditInput" placeholder="Example:
-99213 - I10
-97810 - M54.5
-20553 - M79.18"></textarea>
+<textarea id="input" placeholder="99213 - I10
+97810 - M54.5"></textarea>
 
 <button onclick="runAudit()">Run Audit</button>
 
-<div id="auditResult"></div>
+<div id="result"></div>
+
 </div>
 
 <!-- DENIAL -->
 <div id="denialBox" style="display:none;">
-<textarea placeholder="Enter denial text"></textarea>
+<textarea placeholder="Enter denial reason"></textarea>
 <button>Search</button>
 </div>
 
@@ -112,164 +62,53 @@ a { color:#2d6cdf; text-decoration:none; }
 
 <script>
 
-/* 🔗 BACKEND URL (REPLACE THIS) */
-const API_BASE = "https://dashboard.render.com";
+/* 🔗 YOUR BACKEND URL */
+const API = "https://medical-coding-assistant-1.onrender.com";
 
 /* ---------- TAB ---------- */
 function switchTab(type){
-  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-
-  if(type==="audit"){
-    auditBox.style.display="block";
-    denialBox.style.display="none";
-    document.querySelectorAll(".tab")[0].classList.add("active");
-  } else {
-    auditBox.style.display="none";
-    denialBox.style.display="block";
-    document.querySelectorAll(".tab")[1].classList.add("active");
-  }
+  auditBox.style.display = type==="audit" ? "block":"none";
+  denialBox.style.display = type==="denial" ? "block":"none";
 }
 
-/* ---------- FETCH CMS DATA ---------- */
-async function fetchLCDData(cpt, state){
-  try {
-    const res = await fetch(`${API_BASE}/lcd/${cpt}/${state}`);
+/* ---------- FETCH CMS ---------- */
+async function fetchCMS(cpt,state){
+  try{
+    let res = await fetch(`${API}/lcd/${cpt}/${state}`);
     return await res.json();
-  } catch (err) {
-    return { error: true };
+  }catch{
+    return null;
   }
 }
 
 /* ---------- LOAD NCCI ---------- */
-let ncciData = [];
-
-async function loadNCCI(){
-  const res = await fetch("ncci.csv");
-  const text = await res.text();
-
-  const rows = text.split("\n").slice(1);
-
-  ncciData = rows.map(r=>{
-    let c = r.split(",");
-    return {
-      group: c[0]?.trim(),
-      cpt: c[1]?.trim(),
-      modifier: c[5]?.trim() || c[4]?.trim()
-    };
+let ncciData=[];
+fetch("ncci.csv").then(r=>r.text()).then(t=>{
+  let rows=t.split("\n").slice(1);
+  ncciData=rows.map(r=>{
+    let c=r.split(",");
+    return {group:c[0],cpt:c[1],mod:c[5]||c[4]};
   });
-}
-loadNCCI();
+});
 
-/* ---------- EXCLUDES1 ---------- */
-let EXCLUDES1 = {};
+/* ---------- EXCLUDES ---------- */
+let EXCLUDES={};
+fetch("icd_excludes1.json").then(r=>r.json()).then(d=>EXCLUDES=d);
 
-async function loadExcludes(){
-  const res = await fetch("icd_excludes1.json");
-  EXCLUDES1 = await res.json();
-}
-loadExcludes();
-
-const EXCLUDES1_CATEGORY = {
-  "M54": ["M54"],
-  "E10": ["E11"],
-  "E11": ["E10"]
-};
-
-/* ---------- HELPERS ---------- */
-function getCategory(code){
-  return code.split(".")[0];
-}
-
-/* ---------- EXCLUDES CHECK ---------- */
-function checkExcludes(icds){
-
-  let res=[];
-
-  for(let i=0;i<icds.length;i++){
-    for(let j=i+1;j<icds.length;j++){
-
-      let a=icds[i], b=icds[j];
-
-      if(EXCLUDES1[a] && EXCLUDES1[a].includes(b)){
-        res.push(`${a} + ${b} → ❌ Excludes1`);
-        continue;
-      }
-
-      let ca=getCategory(a), cb=getCategory(b);
-
-      if(EXCLUDES1_CATEGORY[ca] &&
-         EXCLUDES1_CATEGORY[ca].includes(cb)){
-        res.push(`${a} + ${b} → ⚠️ Category Conflict`);
-      }
-    }
-  }
-  return res;
-}
-
-/* ---------- MODIFIER ---------- */
-function getModifier(c1,c2,mod){
-
-  if(mod==="0") return "❌ Not allowed";
-
-  if(mod==="1"){
-    if(/^99/.test(c1)||/^99/.test(c2)){
-      return "⚠️ Modifier 25";
-    }
-    return "⚠️ Modifier 59";
-  }
-
-  return "✅ Allowed";
-}
-
-/* ---------- NCCI ---------- */
-function checkNCCI(cpts){
-
-  let groups={}, res=[], seen=new Set();
-
-  ncciData.forEach(r=>{
-    if(!groups[r.group]) groups[r.group]=[];
-    groups[r.group].push(r);
-  });
-
-  Object.values(groups).forEach(g=>{
-    let gC=g.map(x=>x.cpt);
-    let m=cpts.filter(c=>gC.includes(c));
-
-    if(m.length>1){
-      for(let i=0;i<m.length;i++){
-        for(let j=i+1;j<m.length;j++){
-
-          let key=m[i]+"-"+m[j];
-          if(seen.has(key)) continue;
-          seen.add(key);
-
-          let mod=g.find(x=>x.cpt===m[i])?.modifier;
-          let r=getModifier(m[i],m[j],mod);
-
-          res.push(`${m[i]} + ${m[j]} → ${r}`);
-        }
-      }
-    }
-  });
-
-  return res;
-}
+function getCat(x){return x.split(".")[0];}
 
 /* ---------- PARSE ---------- */
 function parse(text){
   return text.split("\n").map(l=>{
     let p=l.split("-");
-    return {
-      cpt:p[0]?.trim(),
-      icd:p[1]?p[1].split(",").map(x=>x.trim()):[]
-    };
+    return {cpt:p[0]?.trim(), icd:p[1]?.split(",").map(x=>x.trim())||[]};
   }).filter(x=>x.cpt);
 }
 
 /* ---------- RUN AUDIT ---------- */
 async function runAudit(){
 
-  let input=document.getElementById("auditInput").value;
+  let input=document.getElementById("input").value;
   let state=document.getElementById("state").value;
 
   let data=parse(input);
@@ -281,54 +120,64 @@ async function runAudit(){
 
     allICD.push(...d.icd);
 
-    let lcdData = await fetchLCDData(d.cpt, state);
+    let cms=await fetchCMS(d.cpt,state);
 
     let cls="orange";
-    let cmsText="🟠 No CMS data";
+    let text="🟠 No CMS Data";
 
-    if(lcdData && lcdData.icds){
+    if(/^99/.test(d.cpt)){
+      cls="green";
+      text="🟢 E/M Service (Covered)";
+    }
 
-      let match = d.icd.some(icd =>
-        lcdData.icds.includes(icd)
+    else if(cms && cms.icds){
+
+      let match=d.icd.some(icd=>
+        cms.icds.some(c=>c.startsWith(getCat(icd)))
       );
 
       if(match){
         cls="green";
-        cmsText=`
-        🟢 Supported — Diagnosis supports procedure<br>
-        (${state.toUpperCase()} | LCD: ${lcdData.lcd})<br>
-        <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${lcdData.lcd}" target="_blank">🔗 View LCD</a>
-        `;
-      } else {
+        text=`🟢 Supported (${state} | ${cms.lcd})<br>
+        <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${cms.lcd}" target="_blank">View LCD</a>`;
+      }else{
         cls="red";
-        cmsText=`
-        🔴 Not Supported<br>
-        (${state.toUpperCase()} | LCD: ${lcdData.lcd})<br>
-        <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${lcdData.lcd}" target="_blank">🔗 View LCD</a>
-        `;
+        text=`🔴 Not Supported (${state} | ${cms.lcd})`;
       }
     }
 
     html+=`
     <div class="card ${cls}">
       <div class="code">CPT ${d.cpt}</div>
-      ICD: ${d.icd.join(", ")}<br><br>
-      ${cmsText}
+      ICD: ${d.icd.join(", ")}<br><br>${text}
     </div>`;
   }
 
-  // Excludes1
-  checkExcludes(allICD).forEach(x=>{
-    html+=`<div class="card red">${x}</div>`;
+  /* Excludes */
+  for(let i=0;i<allICD.length;i++){
+    for(let j=i+1;j<allICD.length;j++){
+      if(EXCLUDES[allICD[i]]?.includes(allICD[j])){
+        html+=`<div class="card red">${allICD[i]} + ${allICD[j]} → Excludes1</div>`;
+      }
+    }
+  }
+
+  /* NCCI */
+  let cpts=data.map(x=>x.cpt);
+  let seen=new Set();
+
+  ncciData.forEach(r=>{
+    let m=cpts.filter(c=>c===r.cpt);
+    if(m.length>1){
+      let key=r.cpt;
+      if(!seen.has(key)){
+        seen.add(key);
+        html+=`<div class="card orange">${r.cpt} → Modifier ${r.mod}</div>`;
+      }
+    }
   });
 
-  // NCCI
-  let cpts=data.map(d=>d.cpt);
-  checkNCCI(cpts).forEach(x=>{
-    html+=`<div class="card orange">${x}</div>`;
-  });
-
-  document.getElementById("auditResult").innerHTML=html;
+  document.getElementById("result").innerHTML=html;
 }
 
 </script>
