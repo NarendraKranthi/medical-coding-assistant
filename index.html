@@ -8,9 +8,6 @@
 body { font-family: Arial; background:#f4f6f9; margin:0; }
 .header { background:#2d6cdf; color:white; padding:15px; text-align:center; font-size:20px; }
 .container { padding:15px; }
-.tabs { display:flex; margin-bottom:10px; }
-.tab { flex:1; padding:10px; text-align:center; background:#ddd; cursor:pointer; }
-.tab.active { background:#2d6cdf; color:white; }
 textarea { width:100%; height:130px; padding:10px; border-radius:8px; border:1px solid #ccc; }
 select, button { width:100%; padding:10px; margin-top:10px; border-radius:6px; }
 button { background:#2d6cdf; color:white; border:none; }
@@ -28,14 +25,6 @@ button { background:#2d6cdf; color:white; border:none; }
 
 <div class="container">
 
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('audit')">Audit</div>
-  <div class="tab" onclick="switchTab('denial')">Denial</div>
-</div>
-
-<!-- AUDIT -->
-<div id="auditBox">
-
 <select id="state">
   <option value="general">General</option>
   <option value="CA">California</option>
@@ -44,7 +33,7 @@ button { background:#2d6cdf; color:white; border:none; }
 </select>
 
 <textarea id="input" placeholder="99213 - I10
-97810 - M54.5"></textarea>
+20553 - M54.59"></textarea>
 
 <button onclick="runAudit()">Run Audit</button>
 
@@ -52,34 +41,10 @@ button { background:#2d6cdf; color:white; border:none; }
 
 </div>
 
-<!-- DENIAL -->
-<div id="denialBox" style="display:none;">
-<textarea placeholder="Enter denial reason"></textarea>
-<button>Search</button>
-</div>
-
-</div>
-
 <script>
 
-/* 🔗 YOUR BACKEND URL */
+/* 🔗 YOUR BACKEND */
 const API = "https://medical-coding-assistant-1.onrender.com";
-
-/* ---------- TAB ---------- */
-function switchTab(type){
-  auditBox.style.display = type==="audit" ? "block":"none";
-  denialBox.style.display = type==="denial" ? "block":"none";
-}
-
-/* ---------- FETCH CMS ---------- */
-async function fetchCMS(cpt,state){
-  try{
-    let res = await fetch(`${API}/lcd/${cpt}/${state}`);
-    return await res.json();
-  }catch{
-    return null;
-  }
-}
 
 /* ---------- LOAD NCCI ---------- */
 let ncciData=[];
@@ -87,7 +52,7 @@ fetch("ncci.csv").then(r=>r.text()).then(t=>{
   let rows=t.split("\n").slice(1);
   ncciData=rows.map(r=>{
     let c=r.split(",");
-    return {group:c[0],cpt:c[1],mod:c[5]||c[4]};
+    return {cpt:c[1], mod:c[5]||c[4]};
   });
 });
 
@@ -95,22 +60,34 @@ fetch("ncci.csv").then(r=>r.text()).then(t=>{
 let EXCLUDES={};
 fetch("icd_excludes1.json").then(r=>r.json()).then(d=>EXCLUDES=d);
 
+/* ---------- HELPERS ---------- */
 function getCat(x){return x.split(".")[0];}
 
-/* ---------- PARSE ---------- */
 function parse(text){
   return text.split("\n").map(l=>{
     let p=l.split("-");
-    return {cpt:p[0]?.trim(), icd:p[1]?.split(",").map(x=>x.trim())||[]};
+    return {
+      cpt:p[0]?.trim(),
+      icd:p[1]?.split(",").map(x=>x.trim())||[]
+    };
   }).filter(x=>x.cpt);
 }
 
-/* ---------- RUN AUDIT ---------- */
+/* ---------- CMS FETCH ---------- */
+async function fetchCMS(cpt,state){
+  try{
+    let res=await fetch(`${API}/lcd/${cpt}/${state}`);
+    return await res.json();
+  }catch{
+    return null;
+  }
+}
+
+/* ---------- MAIN AUDIT ---------- */
 async function runAudit(){
 
   let input=document.getElementById("input").value;
   let state=document.getElementById("state").value;
-
   let data=parse(input);
 
   let html="";
@@ -123,61 +100,115 @@ async function runAudit(){
     let cms=await fetchCMS(d.cpt,state);
 
     let cls="orange";
-    let text="🟠 No CMS Data";
+    let text="";
+    let confidence=0;
 
+    /* E/M */
     if(/^99/.test(d.cpt)){
       cls="green";
       text="🟢 E/M Service (Covered)";
+      confidence=100;
     }
 
+    /* CMS LOGIC */
     else if(cms && cms.icds){
 
-      let match=d.icd.some(icd=>
-        cms.icds.some(c=>c.startsWith(getCat(icd)))
+      let exactMatch = d.icd.some(icd =>
+        cms.icds.includes(icd)
       );
 
-      if(match){
+      let categoryMatch = d.icd.some(icd =>
+        cms.icds.some(c => c.startsWith(getCat(icd)))
+      );
+
+      if(exactMatch){
         cls="green";
-        text=`🟢 Supported (${state} | ${cms.lcd})<br>
-        <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${cms.lcd}" target="_blank">View LCD</a>`;
-      }else{
-        cls="red";
-        text=`🔴 Not Supported (${state} | ${cms.lcd})<br><br>
-Reason: Diagnosis not covered under LCD<br>
-Suggestion: Verify documentation or use supported ICD`;
+        confidence=100;
+        text=`🟢 Supported (${state} | ${cms.lcd})`;
       }
+
+      else if(categoryMatch){
+        cls="orange";
+        confidence=70;
+
+        let suggestion = cms.icds.slice(0,3).join(", ");
+
+        text=`🟠 Partial Match (${state} | ${cms.lcd})<br><br>
+        Reason: Diagnosis category matches but not exact<br>
+        Suggestion: ${suggestion}`;
+      }
+
+      else{
+        cls="red";
+        confidence=20;
+
+        let suggestion = cms.icds.slice(0,3).join(", ");
+
+        text=`🔴 Not Supported (${state} | ${cms.lcd})<br><br>
+        Reason: ICD not covered under LCD<br>
+        Suggested ICD: ${suggestion}`;
+      }
+    }
+
+    else{
+      cls="orange";
+      text="🟠 No CMS Data";
+      confidence=50;
     }
 
     html+=`
     <div class="card ${cls}">
       <div class="code">CPT ${d.cpt}</div>
-      ICD: ${d.icd.join(", ")}<br><br>${text}
+      ICD: ${d.icd.join(", ")}<br><br>
+      ${text}<br><br>
+      <b>Confidence:</b> ${confidence}%
     </div>`;
   }
 
-  /* Excludes */
+  /* ---------- EXCLUDES1 CHECK ---------- */
+  let seenEx=new Set();
+
   for(let i=0;i<allICD.length;i++){
     for(let j=i+1;j<allICD.length;j++){
-      if(EXCLUDES[allICD[i]]?.includes(allICD[j])){
-        html+=`<div class="card red">${allICD[i]} + ${allICD[j]} → Excludes1</div>`;
+
+      let a=allICD[i], b=allICD[j];
+      let key=a+"-"+b;
+
+      if(EXCLUDES[a]?.includes(b) && !seenEx.has(key)){
+        seenEx.add(key);
+
+        html+=`<div class="card red">
+        ${a} + ${b} → ❌ Excludes1 Conflict
+        </div>`;
       }
     }
   }
 
-  /* NCCI */
+  /* ---------- NCCI CHECK ---------- */
   let cpts=data.map(x=>x.cpt);
   let seen=new Set();
 
-  ncciData.forEach(r=>{
-    let m=cpts.filter(c=>c===r.cpt);
-    if(m.length>1){
-      let key=r.cpt;
-      if(!seen.has(key)){
+  for(let i=0;i<cpts.length;i++){
+    for(let j=i+1;j<cpts.length;j++){
+
+      let a=cpts[i], b=cpts[j];
+      let key=a+"-"+b;
+
+      if(seen.has(key)) continue;
+
+      let match = ncciData.find(r =>
+        (r.cpt===a || r.cpt===b)
+      );
+
+      if(match){
         seen.add(key);
-        html+=`<div class="card orange">${r.cpt} → Modifier ${r.mod}</div>`;
+
+        html+=`<div class="card orange">
+        ${a} + ${b} → ⚠️ Modifier ${match.mod || "59"}
+        </div>`;
       }
     }
-  });
+  }
 
   document.getElementById("result").innerHTML=html;
 }
