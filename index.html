@@ -142,7 +142,9 @@ async function runAudit(){
         <a href="https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?LCDId=${cms.lcd}" target="_blank">View LCD</a>`;
       }else{
         cls="red";
-        text=`🔴 Not Supported (${state} | ${cms.lcd})`;
+        text=`🔴 Not Supported (${state} | ${cms.lcd})<br><br>
+Reason: Diagnosis not covered under LCD<br>
+Suggestion: Verify documentation or use supported ICD`;
       }
     }
 
